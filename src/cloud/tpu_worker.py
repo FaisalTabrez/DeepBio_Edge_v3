@@ -23,11 +23,11 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import jax
-import jax.numpy as jnp
-from jax import pmap, vmap
-import flax
-from flax import linen as nn
+import jax  # type: ignore
+import jax.numpy as jnp  # type: ignore
+from jax import pmap, vmap  # type: ignore
+import flax  # type: ignore
+from flax import linen as nn  # type: ignore
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
 import lancedb
@@ -350,7 +350,7 @@ def load_parquet_streaming(
     parquet_path: str,
     chunk_size: int = 1000,
     max_chunks: Optional[int] = None
-) -> pd.DataFrame:
+):
     """Load Parquet file in streaming chunks to prevent OOM.
     
     Args:
@@ -480,12 +480,14 @@ class LanceDBWriter:
 class CheckpointManager:
     """Manages checkpointing for fault tolerance."""
     
-    def __init__(self, checkpoint_dir: str = "/content/drive/MyDrive/checkpoints"):
+    def __init__(self, checkpoint_dir: Optional[str] = "/content/drive/MyDrive/checkpoints"):
         """Initialize checkpoint manager.
         
         Args:
             checkpoint_dir: Directory for checkpoints
         """
+        if checkpoint_dir is None:
+            checkpoint_dir = "/content/drive/MyDrive/checkpoints"
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Checkpoint directory: {self.checkpoint_dir}")
@@ -598,10 +600,11 @@ def run_embedding_pipeline(
             # Limit chunk if needed
             if max_sequences:
                 remaining = max_sequences - stats["sequences_processed"]
-                chunk_df = chunk_df.head(remaining)
+                if hasattr(chunk_df, 'head'):
+                    chunk_df = chunk_df.head(remaining)
             
             chunk_count += 1
-            sequences = chunk_df["dna_sequence"].tolist()
+            sequences = chunk_df["dna_sequence"].tolist() if isinstance(chunk_df, pd.DataFrame) else []
             
             logger.info(f"\nProcessing chunk {chunk_count} ({len(sequences)} sequences)...")
             
@@ -621,7 +624,7 @@ def run_embedding_pipeline(
                 stats["embeddings_generated"] += len(embeddings)
                 
                 # Checkpoint every 30 minutes
-                if checkpoint_enabled and checkpoint_count % 10 == 0:
+                if checkpoint_enabled and chunk_count % 10 == 0:
                     combined_embeddings = np.vstack(total_embeddings)
                     combined_metadata = pd.concat(total_metadata, ignore_index=True)
                     checkpoint_mgr.save_checkpoint(

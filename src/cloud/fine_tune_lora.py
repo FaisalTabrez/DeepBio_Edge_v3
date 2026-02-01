@@ -26,17 +26,17 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import jax
-import jax.numpy as jnp
-from jax import grad, jit, vmap
-import optax
-import flax
-from flax import linen as nn
-from flax.training import train_state
+import jax  # type: ignore
+import jax.numpy as jnp  # type: ignore
+from jax import grad, jit, vmap  # type: ignore
+import optax  # type: ignore
+import flax  # type: ignore
+from flax import linen as nn  # type: ignore
+from flax.training import train_state  # type: ignore
 import torch
 from transformers import AutoModelForMaskedLM, AutoTokenizer
-from peft import get_peft_model, LoraConfig, TaskType
-import wandb
+from peft import get_peft_model, LoraConfig, TaskType  # type: ignore
+import wandb  # type: ignore
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 logging.basicConfig(level=logging.INFO)
@@ -76,7 +76,7 @@ TAXONOMY_LEVELS = [
 # ============================================================================
 
 
-def init_wandb(project: str = "global-bioscan-lora", config: Dict = None) -> None:
+def init_wandb(project: str = "global-bioscan-lora", config: Optional[Dict[str, Any]] = None) -> None:
     """Initialize Weights & Biases tracking.
     
     Args:
@@ -489,8 +489,8 @@ class FineTuneTrainer:
                     
                     if self.use_wandb:
                         log_to_wandb({
-                            "train/loss": avg_loss,
-                            "train/global_step": self.global_step
+                            "train/loss": float(avg_loss),
+                            "train/global_step": float(self.global_step)
                         }, self.global_step)
                 
             except Exception as e:
