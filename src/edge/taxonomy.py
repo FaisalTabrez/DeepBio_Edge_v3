@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional, cast
 
 import lancedb
 import numpy as np
@@ -147,17 +147,29 @@ class TaxonomyPredictor:
             DataFrame with columns: sequence_id, taxonomy, distance, similarity
         """
         table = self.db.open_table(self.table_name)
-        search_query = table.search(query_vector)
-        try:
-            search_query = search_query.metric("cosine")
-        except Exception:
-            logger.debug("Cosine metric not available; using default LanceDB metric.")
+        search_query_any = cast(Any, table.search(query_vector))
+        metric_fn = getattr(search_query_any, "metric", None)
+        if callable(metric_fn):
+            try:
+                search_query_any = metric_fn("cosine")
+            except Exception:
+                logger.debug("Cosine metric not available; using default LanceDB metric.")
 
-        results = (
-            search_query.limit(k)
-            .select(["sequence_id", "taxonomy", "vector"])
-            .to_pandas()
-        )
+        limit_fn = getattr(search_query_any, "limit", None)
+        if not callable(limit_fn):
+            return pd.DataFrame(columns=["sequence_id", "taxonomy", "distance", "similarity"])
+
+        limited = limit_fn(k)
+        select_fn = getattr(limited, "select", None)
+        if not callable(select_fn):
+            return pd.DataFrame(columns=["sequence_id", "taxonomy", "distance", "similarity"])
+
+        selected = select_fn(["sequence_id", "taxonomy", "vector"])
+        to_pandas_fn = getattr(selected, "to_pandas", None)
+        if not callable(to_pandas_fn):
+            return pd.DataFrame(columns=["sequence_id", "taxonomy", "distance", "similarity"])
+
+        results = cast(pd.DataFrame, to_pandas_fn())
 
         if results.empty:
             return pd.DataFrame(columns=["sequence_id", "taxonomy", "distance", "similarity"])
@@ -203,8 +215,8 @@ class TaxonomyPredictor:
             vote_weights[lineage] = vote_weights.get(lineage, 0.0) + weight
             total_weight += weight
 
-        best_lineage = max(vote_weights, key=vote_weights.get)
-        confidence = (vote_weights[best_lineage] / total_weight) * 100 if total_weight > 0 else 0.0
+        best_lineage, best_weight = max(vote_weights.items(), key=lambda item: item[1])
+        confidence = (best_weight / total_weight) * 100 if total_weight > 0 else 0.0
 
         status = "KNOWN" if confidence >= (self.novelty_threshold * 100) else "LOW_CONFIDENCE"
         return PredictionResult(lineage=best_lineage, confidence=confidence, status=status)

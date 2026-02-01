@@ -105,7 +105,9 @@ class EmbeddingEngine:
         logger.info(f"Device: {self.device.type.upper()}")
         if self.gpu_available:
             logger.info(f"  GPU: {torch.cuda.get_device_name(0)}")
-            logger.info(f"  CUDA: {torch.version.cuda}")
+            torch_version = getattr(torch, "version", None)
+            cuda_version = getattr(torch_version, "cuda", None)
+            logger.info(f"  CUDA: {cuda_version}")
 
         # Determine precision
         self.use_fp16 = self.gpu_available  # Use FP16 on GPU, FP32 on CPU
@@ -435,7 +437,10 @@ class EmbeddingEngine:
                         updated_row["vector"] = embedding.tolist()
 
                         try:
-                            table.update({"vector": updated_row["vector"]})
+                            table.update(
+                                where=f"sequence_id == '{seq_id}'",
+                                values={"vector": updated_row["vector"]},
+                            )
                             update_count += 1
                             self.save_checkpoint(seq_id, self.stats["sequences_processed"])
                         except Exception as e:
@@ -473,7 +478,7 @@ class EmbeddingEngine:
     # VALIDATION & TESTING
     # ========================================================================
 
-    def validate_embeddings(self, test_sequences: Optional[list[str]] = None) -> None:
+    def validate_embeddings(self, test_sequences: Optional[list[tuple[str, str]]] = None) -> None:
         """Validate embeddings by checking semantic similarity.
 
         This test embeds similar sequences and verifies that their cosine

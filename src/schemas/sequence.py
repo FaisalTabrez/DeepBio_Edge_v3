@@ -39,9 +39,16 @@ class SequenceBatch(BaseModel):
     """Batch of sequences for processing."""
 
     batch_id: str = Field(..., description="Unique batch identifier")
-    sequences: list[DNASequence] = Field(..., min_items=1)
+    sequences: list[DNASequence] = Field(default_factory=list)
     timestamp: str = Field(..., description="ISO8601 timestamp")
     processing_stage: Literal["raw", "cleaned", "embedded"] = Field(default="raw")
+
+    @field_validator("sequences")
+    @classmethod
+    def validate_sequences(cls, v: list[DNASequence]) -> list[DNASequence]:
+        if not v:
+            raise ValueError("sequences must contain at least one DNASequence")
+        return v
 
     class Config:
         """Pydantic config."""

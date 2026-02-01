@@ -7,7 +7,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional, cast
 from urllib.parse import urlencode
 
 import lancedb
@@ -73,7 +73,7 @@ class DataIngestionEngine:
         logger.info(f"Connected to LanceDB at {db_path}")
         
         self.session = requests.Session()
-        self.session.timeout = OBIS_TIMEOUT
+        self.default_timeout = OBIS_TIMEOUT
         self.sequences_fetched = 0
         self.sequences_stored = 0
 
@@ -100,8 +100,8 @@ class DataIngestionEngine:
         logger.info(f"Fetching OBIS occurrences at depth > {min_depth}m...")
 
         # Build OBIS API query
-        params = {
-            "limit": min(limit, 50000),  # OBIS pagination limit
+        params: dict[str, str | int | float] = {
+            "limit": int(min(limit, 50000)),  # OBIS pagination limit
             "offset": 0,
         }
         
@@ -114,9 +114,11 @@ class DataIngestionEngine:
         unique_species = {}
 
         try:
-            while params["offset"] < limit:
-                logger.debug(f"Fetching OBIS batch at offset {params['offset']}...")
-                response = self.session.get(url, params=params, timeout=OBIS_TIMEOUT)
+            offset = 0
+            while offset < limit:
+                params["offset"] = offset
+                logger.debug(f"Fetching OBIS batch at offset {offset}...")
+                response = self.session.get(url, params=params, timeout=self.default_timeout)
                 response.raise_for_status()
                 data = response.json()
 
@@ -145,7 +147,7 @@ class DataIngestionEngine:
                             "kingdom": record.get("kingdom"),
                         }
 
-                params["offset"] += len(data["results"])
+                offset += len(data["results"])
                 all_records.extend(data["results"])
                 time.sleep(0.5)  # Rate limiting
 
@@ -162,7 +164,7 @@ class DataIngestionEngine:
     def fetch_ncbi_sequence(
         self,
         species_name: str,
-        marker_genes: list[str] = None,
+        marker_genes: Optional[list[str]] = None,
         retmax: int = 5
     ) -> Optional[tuple[str, str, str]]:
         """Fetch COI or 18S sequence from NCBI for given species.
@@ -194,12 +196,18 @@ class DataIngestionEngine:
                 search_results = Entrez.read(search_handle)
                 search_handle.close()
 
-                if not search_results.get("IdList"):
+                id_list: list[str] = []
+                if isinstance(search_results, dict):
+                    raw_list = search_results.get("IdList", [])
+                    if isinstance(raw_list, list):
+                        id_list = [str(v) for v in raw_list]
+
+                if not id_list:
                     logger.debug(f"No {marker} sequences found for {species_name}")
                     continue
 
                 # Fetch first hit
-                seq_id = search_results["IdList"][0]
+                seq_id = id_list[0]
                 fetch_handle = Entrez.efetch(
                     db="nucleotide",
                     id=seq_id,
@@ -269,7 +277,8 @@ class DataIngestionEngine:
                     logger.warning(f"TaxonKit name2taxid failed for {species_name}")
                     return None
 
-                taxon_id = result.stdout.split("\t")[1].strip()
+                taxon_id_raw = result.stdout.split("\t")[1].strip()
+                taxon_id = int(taxon_id_raw) if taxon_id_raw.isdigit() else None
                 cmd_reformat = f'echo {taxon_id} | taxonkit reformat -F 0 -s ";" -t'
 
             # Run reformat command
@@ -316,15 +325,17 @@ class DataIngestionEngine:
         # Pad with None if fewer than 7 levels
         parts += [None] * (7 - len(parts))
         
-        return TaxonomicLineage(
-            sequence_id="",  # Will be set later
-            kingdom=parts[0] if parts[0] else None,
-            phylum=parts[1] if parts[1] else None,
-            class_=parts[2] if parts[2] else None,
-            order=parts[3] if parts[3] else None,
-            family=parts[4] if parts[4] else None,
-            genus=parts[5] if parts[5] else None,
-            species=parts[6] if parts[6] else None,
+        return TaxonomicLineage.model_validate(
+            {
+                "sequence_id": "",
+                "kingdom": parts[0] if parts[0] else None,
+                "phylum": parts[1] if parts[1] else None,
+                "class": parts[2] if parts[2] else None,
+                "order": parts[3] if parts[3] else None,
+                "family": parts[4] if parts[4] else None,
+                "genus": parts[5] if parts[5] else None,
+                "species": parts[6] if parts[6] else None,
+            }
         )
 
     # ========================================================================
@@ -352,7 +363,10 @@ class DataIngestionEngine:
 
         # Create or overwrite embeddings table
         try:
-            self.db.drop_table(LANCEDB_TABLE_SEQUENCES, ignore_missing=True)
+            try:
+                self.db.drop_table(LANCEDB_TABLE_SEQUENCES)
+            except Exception:
+                pass
             table = self.db.create_table(LANCEDB_TABLE_SEQUENCES, data=[sample_record])
             logger.info(f"✓ Created LanceDB table: {LANCEDB_TABLE_SEQUENCES}")
         except Exception as e:
@@ -447,9 +461,15 @@ class DataIngestionEngine:
                 sequence, marker_gene, accession_id = seq_data
 
                 # Normalize taxonomy with TaxonKit
+                taxon_id_value = species_record.get("taxon_id")
+                if isinstance(taxon_id_value, str) and taxon_id_value.isdigit():
+                    taxon_id_value = int(taxon_id_value)
+                elif not isinstance(taxon_id_value, int):
+                    taxon_id_value = None
+
                 lineage_str = self.normalize_taxonomy_taxonkit(
                     species_name,
-                    species_record.get("taxon_id"),
+                    taxon_id_value,
                 )
                 
                 if not lineage_str:
@@ -461,7 +481,7 @@ class DataIngestionEngine:
                 
                 record = {
                     "sequence_id": sequence_id,
-                    "vector": [0.0] * 768 if skip_embedding else None,  # Placeholder
+                    "vector": [0.0] * 768,  # Placeholder
                     "dna_sequence": sequence,
                     "taxonomy": lineage_str,
                     "obis_id": species_record.get("obis_id", ""),
@@ -525,10 +545,18 @@ class DataIngestionEngine:
             if not (FASTA_MIN_LENGTH <= len(seq_str) <= FASTA_MAX_LENGTH):
                 continue
 
+            if marker_gene not in {"COI", "18S", "16S"}:
+                raise ValueError(f"Unsupported marker gene: {marker_gene}")
+
+            marker_gene_literal = cast(Literal["COI", "18S", "16S"], marker_gene)
             seq_obj = DNASequence(
                 sequence_id=record.id,
                 sequence=seq_str,
-                marker_gene=marker_gene,
+                marker_gene=marker_gene_literal,
+                species=None,
+                latitude=None,
+                longitude=None,
+                depth_m=None,
                 source="Custom",
                 length_bp=len(seq_str),
             )
@@ -551,8 +579,8 @@ class DataIngestionEngine:
         try:
             table = self.db.open_table(LANCEDB_TABLE_SEQUENCES)
             results = table.search().limit(1000).to_list()
-            batch_ids = set(r.get("batch_id") for r in results if r.get("batch_id"))
-            return sorted(list(batch_ids))
+            batch_ids = {str(r.get("batch_id")) for r in results if r.get("batch_id")}
+            return sorted(batch_ids)
         except Exception as e:
             logger.warning(f"Failed to list batches: {e}")
             return []
