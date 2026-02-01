@@ -1,0 +1,500 @@
+/* ============================================================================
+   GLOBAL-BIOSCAN: DEEP OCEAN THEME
+   Comprehensive CSS styling for the Streamlit dashboard
+   ============================================================================ */
+
+/* ============================================================================
+   COLOR PALETTE
+   ============================================================================ */
+
+:root {
+    /* Deep Ocean Blues */
+    --deep-blue: #0a1e3a;
+    --dark-blue: #0d2538;
+    --ocean-blue: #1a4d6d;
+    --light-ocean: #1a3f5a;
+    
+    /* Accent Colors */
+    --teal: #2dd4da;
+    --teal-hover: #26b8bd;
+    --green: #4ade80;
+    --green-glow: rgba(74, 222, 128, 0.3);
+    --yellow: #fbbf24;
+    --yellow-dark: #d8961a;
+    --red: #ff6b6b;
+    --red-dark: #ef4444;
+    
+    /* Text Colors */
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --text-dark: #000000;
+    
+    /* Background Gradients */
+    --gradient-dark: linear-gradient(135deg, #0a1e3a 0%, #1a3a52 100%);
+    --gradient-sidebar: linear-gradient(180deg, #0d2538 0%, #1a3f5a 100%);
+}
+
+/* ============================================================================
+   GLOBAL STYLES
+   ============================================================================ */
+
+* {
+    box-sizing: border-box;
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--deep-blue);
+    color: var(--text-primary);
+}
+
+/* ============================================================================
+   MAIN CONTAINER
+   ============================================================================ */
+
+[data-testid="stAppViewContainer"] {
+    background: var(--gradient-dark);
+    color: var(--text-primary);
+}
+
+.main {
+    background: var(--gradient-dark);
+    color: var(--text-primary);
+}
+
+/* ============================================================================
+   SIDEBAR STYLING
+   ============================================================================ */
+
+[data-testid="stSidebar"] {
+    background: var(--gradient-sidebar) !important;
+    border-right: 2px solid var(--teal);
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    color: var(--text-primary);
+}
+
+/* ============================================================================
+   TYPOGRAPHY
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+    color: var(--green);
+    text-shadow: 0 0 10px var(--green-glow);
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+h1 {
+    font-size: 2.5rem;
+    border-bottom: 3px solid var(--teal);
+    padding-bottom: 1rem;
+}
+
+h2 {
+    font-size: 2rem;
+    margin-top: 1.5rem;
+}
+
+h3 {
+    font-size: 1.5rem;
+}
+
+h4, h5, h6 {
+    font-size: 1.1rem;
+}
+
+p, span, a {
+    color: var(--text-primary);
+}
+
+a {
+    color: var(--teal);
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+a:hover {
+    color: var(--yellow);
+    text-decoration: underline;
+}
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+button, [data-testid="stButton"] button {
+    background: var(--ocean-blue) !important;
+    border: 2px solid var(--teal) !important;
+    color: var(--text-primary) !important;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+button:hover, [data-testid="stButton"] button:hover {
+    background: var(--teal) !important;
+    color: var(--text-dark) !important;
+    border-color: var(--green) !important;
+    box-shadow: 0 0 15px var(--teal);
+    transform: translateY(-2px);
+}
+
+button:active, [data-testid="stButton"] button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Primary buttons (type="primary") */
+button[type="primary"],
+[data-testid="stButton"] button[type="primary"] {
+    background: var(--green) !important;
+    border-color: var(--green) !important;
+    color: var(--text-dark) !important;
+}
+
+button[type="primary"]:hover,
+[data-testid="stButton"] button[type="primary"]:hover {
+    background: #2d8659 !important;
+    box-shadow: 0 0 15px var(--green-glow);
+}
+
+/* ============================================================================
+   INPUT ELEMENTS
+   ============================================================================ */
+
+input, textarea, select, [data-testid="stTextInput"] input {
+    background-color: var(--light-ocean) !important;
+    border: 1px solid var(--teal) !important;
+    color: var(--text-primary) !important;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+input:focus, textarea:focus, select:focus,
+[data-testid="stTextInput"] input:focus {
+    background-color: var(--ocean-blue) !important;
+    border: 2px solid var(--green) !important;
+    box-shadow: 0 0 12px var(--green-glow);
+    outline: none;
+}
+
+textarea {
+    min-height: 150px;
+    resize: vertical;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+/* ============================================================================
+   SLIDERS
+   ============================================================================ */
+
+[data-testid="stSlider"] {
+    --slider-color: var(--teal);
+}
+
+[data-testid="stSlider"] [data-testid="stThumb"] {
+    background: var(--teal) !important;
+    box-shadow: 0 0 8px var(--teal);
+}
+
+[data-testid="stSlider"] [data-testid="stThumb"]:hover {
+    background: var(--green) !important;
+    box-shadow: 0 0 12px var(--green);
+}
+
+/* ============================================================================
+   METRICS & CARDS
+   ============================================================================ */
+
+[data-testid="stMetricContainer"] {
+    background: var(--ocean-blue);
+    border: 1px solid var(--teal);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 4px 8px rgba(45, 212, 218, 0.1);
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--green) !important;
+    font-size: 2rem;
+    font-weight: 700;
+    text-shadow: 0 0 8px var(--green-glow);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+/* ============================================================================
+   DIVIDERS
+   ============================================================================ */
+
+hr, [data-testid="stDivider"] {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--teal), transparent);
+    margin: 1.5rem 0;
+}
+
+/* ============================================================================
+   ALERT BOXES
+   ============================================================================ */
+
+[data-testid="stAlert"] {
+    border-radius: 8px;
+    border-left: 4px solid;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+/* Success (Green) */
+[data-testid="stAlert"][type="success"] {
+    background: rgba(74, 222, 128, 0.1);
+    border-left-color: var(--green);
+    color: var(--green);
+}
+
+/* Info (Teal) */
+[data-testid="stAlert"][type="info"] {
+    background: rgba(45, 212, 218, 0.1);
+    border-left-color: var(--teal);
+    color: var(--teal);
+}
+
+/* Warning (Yellow) */
+[data-testid="stAlert"][type="warning"] {
+    background: rgba(251, 191, 36, 0.1);
+    border-left-color: var(--yellow);
+    color: var(--yellow);
+}
+
+/* Error (Red) */
+[data-testid="stAlert"][type="error"] {
+    background: rgba(255, 107, 107, 0.1);
+    border-left-color: var(--red);
+    color: var(--red);
+}
+
+/* ============================================================================
+   TABS
+   ============================================================================ */
+
+[data-testid="stTabs"] {
+    --tabs-border-color: var(--teal);
+}
+
+[data-testid="stTabs"] button {
+    background: var(--ocean-blue) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--teal) !important;
+    border-radius: 6px 6px 0 0;
+    margin-right: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+[data-testid="stTabs"] button:hover {
+    background: var(--light-ocean) !important;
+    border-color: var(--green) !important;
+}
+
+[data-testid="stTabs"] button[aria-selected="true"] {
+    background: var(--green) !important;
+    color: var(--text-dark) !important;
+    border-color: var(--green) !important;
+    box-shadow: 0 -2px 8px rgba(74, 222, 128, 0.3);
+}
+
+/* ============================================================================
+   DATA TABLES
+   ============================================================================ */
+
+[data-testid="stDataFrame"] {
+    background: var(--ocean-blue) !important;
+    border: 1px solid var(--teal) !important;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+[data-testid="stDataFrame"] table {
+    background: var(--ocean-blue);
+}
+
+[data-testid="stDataFrame"] thead {
+    background: var(--light-ocean);
+    color: var(--green);
+    font-weight: 600;
+    border-bottom: 2px solid var(--teal);
+}
+
+[data-testid="stDataFrame"] tbody tr {
+    border-bottom: 1px solid rgba(45, 212, 218, 0.2);
+}
+
+[data-testid="stDataFrame"] tbody tr:hover {
+    background: rgba(45, 212, 218, 0.1);
+}
+
+[data-testid="stDataFrame"] td {
+    color: var(--text-primary);
+    padding: 0.75rem;
+}
+
+/* ============================================================================
+   STATUS BADGES
+   ============================================================================ */
+
+.status-badge {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin: 5px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+}
+
+.status-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+
+.status-known {
+    background: var(--teal);
+    color: var(--text-dark);
+}
+
+.status-novel {
+    background: var(--yellow);
+    color: var(--text-dark);
+    animation: pulse 2s infinite;
+}
+
+.status-unknown {
+    background: var(--red);
+    color: #fff;
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 2px 6px rgba(251, 191, 36, 0.3);
+    }
+    50% {
+        opacity: 0.8;
+        box-shadow: 0 2px 12px rgba(251, 191, 36, 0.6);
+    }
+}
+
+@keyframes glow {
+    0%, 100% {
+        text-shadow: 0 0 10px var(--green-glow);
+    }
+    50% {
+        text-shadow: 0 0 20px var(--green-glow);
+    }
+}
+
+@keyframes slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ============================================================================
+   PLOTLY CHARTS
+   ============================================================================ */
+
+[data-testid="plotly-chart"] {
+    background: var(--deep-blue);
+}
+
+.plotly-chart {
+    background: var(--deep-blue) !important;
+}
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--ocean-blue);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--teal);
+    border-radius: 5px;
+    transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--green);
+    box-shadow: 0 0 10px var(--green-glow);
+}
+
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    h1 {
+        font-size: 1.8rem;
+    }
+
+    h2 {
+        font-size: 1.4rem;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.5rem;
+    }
+
+    button {
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
+}
+
+/* ============================================================================
+   PRINT STYLES
+   ============================================================================ */
+
+@media print {
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+
+    body {
+        background: white;
+        color: black;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        color: black;
+        text-shadow: none;
+    }
+}
