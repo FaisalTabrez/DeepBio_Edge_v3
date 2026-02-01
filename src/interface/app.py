@@ -137,7 +137,7 @@ st.markdown(
 
 
 @st.cache_resource
-def load_embedding_engine() -> EmbeddingEngine:
+def load_embedding_engine() -> Optional[EmbeddingEngine]:
     """Load embedding engine once and reuse."""
     try:
         logger.info("Loading Nucleotide Transformer model...")
@@ -382,9 +382,22 @@ def render_deep_sea_detective(similarity_threshold: float, top_k: int):
         # Predict taxonomy
         with st.spinner("🧪 Predicting taxonomy..."):
             try:
-                lineage = taxonomy_predictor.predict_lineage(
-                    embedding, k=top_k, similarity_threshold=similarity_threshold
-                )
+                # Convert search results to neighbor DataFrame
+                neighbor_data_for_tax = []
+                for row in results[:top_k]:
+                    neighbor_data_for_tax.append({
+                        "sequence_id": row.get("sequence_id", ""),
+                        "taxonomy": row.get("taxonomy", ""),
+                        "_distance": row.get("_distance", 2.0),
+                    })
+                neighbor_df = pd.DataFrame(neighbor_data_for_tax)
+                if "_distance" in neighbor_df.columns:
+                    neighbor_df["similarity"] = neighbor_df["_distance"].apply(
+                        lambda d: max(0.0, min(1.0, 1.0 - (d / 2.0)))
+                    )
+                
+                prediction_result = taxonomy_predictor.predict_lineage(neighbor_df)
+                lineage = prediction_result.lineage.split(";") if ";" in prediction_result.lineage else [prediction_result.lineage]
             except Exception as e:
                 st.error(f"Taxonomy prediction failed: {e}")
                 return
@@ -392,7 +405,13 @@ def render_deep_sea_detective(similarity_threshold: float, top_k: int):
         # Check novelty
         with st.spinner("🔍 Assessing novelty..."):
             try:
-                is_novel = novelty_detector.is_novel(embedding, k=top_k)
+                # Get top similarity score
+                top_similarity = 0.0
+                if results and len(results) > 0:
+                    distance = results[0].get("_distance", 2.0)
+                    top_similarity = max(0.0, min(1.0, 1.0 - (distance / 2.0)))
+                
+                is_novel = novelty_detector.is_novel(top_similarity)
             except Exception as e:
                 logger.warning(f"Novelty detection failed: {e}")
                 is_novel = False
