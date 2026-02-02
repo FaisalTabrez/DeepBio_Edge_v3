@@ -2,8 +2,6 @@
 
 Scientific-grade biotechnological interface for taxonomic inference and ecological analysis.
 Supports standard bioinformatics file formats: FASTA, FASTQ, CSV, TXT, Parquet.
-
-ZERO-EMOJI POLICY: This interface maintains strict professional standards with text-only design.
 """
 # pyright: reportOptionalMemberAccess=false
 # ============================================================================
@@ -104,12 +102,12 @@ if 'hdbscan_min_cluster_size' not in st.session_state:
 # Streamlit page config
 st.set_page_config(
     page_title="Global-BioScan: Genomic Analysis Platform",
-    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>",
+    page_icon="🧬",
     layout="wide",
     initial_sidebar_state="collapsed",  # Hide sidebar completely
 )
 
-# Custom CSS - Professional Scientific Theme
+# Custom CSS - Enhanced for horizontal nav
 st.markdown(
     """
     <style>
@@ -152,20 +150,18 @@ st.markdown(
     .stAlert {
         background-color: #1a2332;
         border-left: 4px solid #1976d2;
-        border-radius: 4px;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
 # ============================================================================
-# HELPER FUNCTIONS
+# FILE PARSING UTILITIES
 # ============================================================================
 
 def parse_bio_file(uploaded_file) -> List[Dict[str, str]]:
-    """Parse bioinformatics file and extract sequences.
+    """Parse bioinformatics files into standardized sequence records.
     
     Supports: FASTA, FASTQ, CSV, TXT, Parquet
     
@@ -175,24 +171,30 @@ def parse_bio_file(uploaded_file) -> List[Dict[str, str]]:
     sequences = []
     file_extension = uploaded_file.name.split('.')[-1].lower()
     
-    if not BIOPYTHON_AVAILABLE and file_extension in ['fasta', 'fa', 'fna', 'fastq', 'fq']:
-        st.error("Biopython library not available. Cannot parse FASTA/FASTQ files.")
-        return []
-    
     try:
         if file_extension in ['fasta', 'fa', 'fna']:
-            # Parse FASTA
-            file_content = io.StringIO(uploaded_file.getvalue().decode('utf-8'))
-            for record in SeqIO.parse(file_content, "fasta"):
+            if not BIOPYTHON_AVAILABLE:
+                st.error("BioPython required for FASTA parsing. Install with: pip install biopython")
+                return []
+            
+            content = uploaded_file.getvalue().decode('utf-8')
+            fasta_io = io.StringIO(content)
+            
+            for record in SeqIO.parse(fasta_io, "fasta"):
                 sequences.append({
                     'id': record.id,
                     'sequence': str(record.seq).upper()
                 })
         
         elif file_extension in ['fastq', 'fq']:
-            # Parse FASTQ
-            file_content = io.StringIO(uploaded_file.getvalue().decode('utf-8'))
-            for record in SeqIO.parse(file_content, "fastq"):
+            if not BIOPYTHON_AVAILABLE:
+                st.error("BioPython required for FASTQ parsing. Install with: pip install biopython")
+                return []
+            
+            content = uploaded_file.getvalue().decode('utf-8')
+            fastq_io = io.StringIO(content)
+            
+            for record in SeqIO.parse(fastq_io, "fastq"):
                 sequences.append({
                     'id': record.id,
                     'sequence': str(record.seq).upper()
@@ -256,43 +258,73 @@ def parse_bio_file(uploaded_file) -> List[Dict[str, str]]:
             content = uploaded_file.getvalue().decode('utf-8')
             lines = content.strip().split('\n')
             
+            # Assume plain text with one sequence per line (or single sequence)
             if len(lines) == 1:
                 sequences.append({
                     'id': 'input_sequence_1',
-                    'sequence': lines[0].upper().replace(' ', '')
+                    'sequence': lines[0].strip().upper().replace(' ', '')
                 })
             else:
-                # Multi-line TXT
                 for idx, line in enumerate(lines):
-                    if line.strip():
+                    line = line.strip()
+                    if line and not line.startswith('#'):  # Skip comments
                         sequences.append({
                             'id': f'seq_{idx+1}',
-                            'sequence': line.strip().upper().replace(' ', '')
+                            'sequence': line.upper().replace(' ', '')
                         })
         
         else:
             st.error(f"Unsupported file format: {file_extension}")
+            return []
+        
+        # Validate sequences
+        valid_sequences = []
+        for seq_record in sequences:
+            seq = seq_record['sequence']
+            if seq and all(c in 'ATGCNRYSWKMBDHV' for c in seq):
+                valid_sequences.append(seq_record)
+            else:
+                st.warning(f"Skipping invalid sequence ID: {seq_record['id']}")
+        
+        return valid_sequences
     
     except Exception as e:
-        st.error(f"File parsing error: {e}")
-        logger.error(f"Parse error: {e}", exc_info=True)
+        st.error(f"Error parsing file: {str(e)}")
+        logger.error(f"File parsing error: {str(e)}", exc_info=True)
+        return []
+
+
+def export_darwin_core_csv(results: List[Dict[str, Any]]) -> str:
+    """Export results as Darwin Core standard CSV format."""
+    df = pd.DataFrame(results)
     
-    return sequences
+    # Rename to Darwin Core terms
+    darwin_core_mapping = {
+        'id': 'occurrenceID',
+        'sequence': 'associatedSequences',
+        'predicted_lineage': 'scientificName',
+        'confidence': 'identificationRemarks',
+        'status': 'occurrenceStatus'
+    }
+    
+    for old_col, new_col in darwin_core_mapping.items():
+        if old_col in df.columns:
+            df.rename(columns={old_col: new_col}, inplace=True)
+    
+    # Add metadata
+    df['basisOfRecord'] = 'MachineObservation'
+    df['identificationMethod'] = 'Nucleotide Transformer Deep Learning Model'
+    df['dateIdentified'] = datetime.now().strftime('%Y-%m-%d')
+    
+    return df.to_csv(index=False)
 
+
+# ============================================================================
+# CACHED RESOURCES
+# ============================================================================
 
 @st.cache_resource
-def load_lancedb():
-    """Load LanceDB connection (cached)."""
-    try:
-        db = lancedb.connect(str(LANCEDB_PENDRIVE_PATH))
-        return db
-    except Exception as e:
-        logger.warning(f"LanceDB connection failed: {e}")
-        return None
-
-
-@st.cache_resource
-def load_embedding_engine() -> Optional[Any]:
+def load_embedding_engine() -> Optional[EmbeddingEngine]:  # type: ignore
     """Load embedding engine once and reuse."""
     if not EMBEDDING_AVAILABLE:
         logger.warning("EmbeddingEngine not available (transformers import failed)")
@@ -309,13 +341,26 @@ def load_embedding_engine() -> Optional[Any]:
 
 
 @st.cache_resource
+def load_lancedb() -> Optional[lancedb.db.DBConnection]:
+    """Connect to LanceDB once and reuse."""
+    try:
+        db = lancedb.connect(str(LANCEDB_PENDRIVE_PATH))
+        logger.info(f"Connected to LanceDB at {LANCEDB_PENDRIVE_PATH}")
+        return db
+    except Exception as e:
+        st.error(f"Failed to connect to LanceDB: {e}")
+        return None
+
+
+@st.cache_resource
 def load_taxonomy_predictor() -> Optional[TaxonomyPredictor]:
     """Load taxonomy predictor once and reuse."""
-    db = load_lancedb()
-    if db is None:
-        return None
     try:
-        predictor = TaxonomyPredictor(db=db, table_name=LANCEDB_TABLE_SEQUENCES)
+        predictor = TaxonomyPredictor(
+            db_path=str(LANCEDB_PENDRIVE_PATH),
+            table_name=LANCEDB_TABLE_SEQUENCES,
+            enable_taxonkit=False,
+        )
         return predictor
     except Exception as e:
         st.error(f"Failed to load taxonomy predictor: {e}")
@@ -335,36 +380,23 @@ def load_novelty_detector() -> Optional[NoveltyDetector]:
 
 @st.cache_data(ttl=3600)
 def get_database_status() -> Dict[str, Any]:
-    """Get database connection status and stats."""
-    db = load_lancedb()
-    
-    if db is None:
-        return {
-            "status": "disconnected",
-            "sequences": 0,
-            "novel_taxa": 0
-        }
-    
+    """Get current database statistics."""
     try:
+        db = load_lancedb()
+        if db is None:
+            return {"sequences": 0, "novel_taxa": 0, "status": "disconnected"}
+        
         table = db.open_table(LANCEDB_TABLE_SEQUENCES)
         count = table.count_rows()
+        
         return {
-            "status": "connected",
             "sequences": count,
-            "novel_taxa": 0  # Placeholder
+            "novel_taxa": 0,  # Placeholder
+            "status": "connected"
         }
-    except Exception:
-        return {
-            "status": "error",
-            "sequences": 0,
-            "novel_taxa": 0
-        }
-
-
-def export_darwin_core_csv(results: List[Dict]) -> str:
-    """Export results as Darwin Core compliant CSV."""
-    df = pd.DataFrame(results)
-    return df.to_csv(index=False)
+    except Exception as e:
+        logger.error(f"Failed to get database status: {e}")
+        return {"sequences": 0, "novel_taxa": 0, "status": "error"}
 
 
 # ============================================================================
@@ -373,7 +405,7 @@ def export_darwin_core_csv(results: List[Dict]) -> str:
 
 def render_home_mission():
     """Render home page with mission statement and system overview."""
-    st.markdown("# Global-BioScan: Genomic Analysis Platform")
+    st.markdown("# 🧬 Global-BioScan: Genomic Analysis Platform")
     st.markdown("### Deep Learning-Powered Taxonomic Inference from Environmental DNA")
     
     st.divider()
@@ -382,7 +414,7 @@ def render_home_mission():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.markdown("## PROJECT VISION")
+        st.markdown("## 🎯 Project Vision")
         st.markdown("""
         **Global-BioScan** represents a paradigm shift in biodiversity monitoring by leveraging 
         **foundation models** for edge-based taxonomic inference. Our mission is to democratize 
@@ -390,10 +422,10 @@ def render_home_mission():
         environmental DNA (eDNA) samples without requiring cloud connectivity or expensive infrastructure.
         
         ### Key Objectives:
-        - **Global Accessibility**: Deploy on resource-constrained edge devices (32GB USB drives)
-        - **Real-Time Inference**: Process sequences in less than 1 second per sample
-        - **Scientific Rigor**: Achieve greater than 90% taxonomic accuracy at genus level
-        - **Open Science**: MIT-licensed platform for research reproducibility
+        - 🌍 **Global Accessibility**: Deploy on resource-constrained edge devices (32GB USB drives)
+        - ⚡ **Real-Time Inference**: Process sequences in <1 second per sample
+        - 🔬 **Scientific Rigor**: Achieve >90% taxonomic accuracy at genus level
+        - 🆓 **Open Science**: MIT-licensed platform for research reproducibility
         
         ### Impact Areas:
         - **Marine Conservation**: Rapid biodiversity assessment in remote oceanic regions
@@ -403,22 +435,22 @@ def render_home_mission():
         """)
     
     with col2:
-        st.markdown("## PLATFORM STATUS")
+        st.markdown("## 📊 Platform Capabilities")
         
         # System Status
         status = get_database_status()
         
-        db_status_text = "[ONLINE]" if status["status"] == "connected" else "[OFFLINE]"
-        model_status_text = "[READY]" if EMBEDDING_AVAILABLE else "[UNAVAILABLE]"
+        db_status = "🟢 Online" if status["status"] == "connected" else "🔴 Offline"
+        model_status = "🟢 Ready" if EMBEDDING_AVAILABLE else "🟡 Unavailable"
         
-        st.metric("Vector Database", db_status_text)
-        st.metric("ML Model", model_status_text)
-        st.metric("Sequences Indexed", f"{status['sequences']:,}")
-        st.metric("Novel Taxa Candidates", f"{status['novel_taxa']:,}")
+        st.metric("**Vector Database**", db_status)
+        st.metric("**ML Model**", model_status)
+        st.metric("**Sequences Indexed**", f"{status['sequences']:,}")
+        st.metric("**Novel Taxa Candidates**", f"{status['novel_taxa']:,}")
         
         st.divider()
         
-        st.markdown("### TECHNICAL STACK")
+        st.markdown("### 🔧 Technical Stack")
         st.markdown("""
         **Model**: Nucleotide Transformer (500M params)  
         **Embedding**: 768-dimensional latent space  
@@ -430,12 +462,12 @@ def render_home_mission():
     st.divider()
     
     # Workflow Overview
-    st.markdown("## END-TO-END WORKFLOW")
+    st.markdown("## 🔄 End-to-End Workflow")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.markdown("### STAGE 1: Data Collection")
+        st.markdown("### 1️⃣ Data Collection")
         st.markdown("""
         - Environmental samples (water, soil, air)
         - DNA extraction & amplification
@@ -444,7 +476,7 @@ def render_home_mission():
         """)
     
     with col2:
-        st.markdown("### STAGE 2: Representation Learning")
+        st.markdown("### 2️⃣ Representation Learning")
         st.markdown("""
         - Nucleotide Transformer encoding
         - 768-dim embedding generation
@@ -453,7 +485,7 @@ def render_home_mission():
         """)
     
     with col3:
-        st.markdown("### STAGE 3: Similarity Search")
+        st.markdown("### 3️⃣ Similarity Search")
         st.markdown("""
         - Cosine similarity in latent space
         - K-nearest neighbor retrieval
@@ -462,7 +494,7 @@ def render_home_mission():
         """)
     
     with col4:
-        st.markdown("### STAGE 4: Taxonomic Assignment")
+        st.markdown("### 4️⃣ Taxonomic Assignment")
         st.markdown("""
         - Weighted consensus voting
         - Confidence score calibration
@@ -473,31 +505,31 @@ def render_home_mission():
     st.divider()
     
     # System Check
-    st.markdown("## SYSTEM HEALTH CHECK")
+    st.markdown("## 🔍 System Health Check")
     
-    if st.button("Run System Diagnostics", type="primary"):
+    if st.button("🚀 Run System Diagnostics", type="primary"):
         with st.spinner("Checking system components..."):
             # Check database
             db = load_lancedb()
             if db:
-                st.success("[PASS] LanceDB connection established")
+                st.success("✅ LanceDB connection established")
             else:
-                st.error("[FAIL] LanceDB connection failed - check pendrive mount")
+                st.error("❌ LanceDB connection failed - check pendrive mount")
             
             # Check model
             if EMBEDDING_AVAILABLE:
-                st.success("[PASS] Nucleotide Transformer model loaded")
+                st.success("✅ Nucleotide Transformer model loaded")
             else:
-                st.warning("[WARN] Embedding engine unavailable - using mock embeddings")
+                st.warning("⚠️ Embedding engine unavailable - using mock embeddings")
             
             # Check predictor
             predictor = load_taxonomy_predictor()
             if predictor:
-                st.success("[PASS] Taxonomy predictor initialized")
+                st.success("✅ Taxonomy predictor initialized")
             else:
-                st.error("[FAIL] Taxonomy predictor failed to load")
+                st.error("❌ Taxonomy predictor failed to load")
             
-            st.info("[INFO] All systems nominal. Ready for genomic analysis.")
+            st.info("💡 All systems nominal. Ready for genomic analysis.")
     
     st.divider()
     
@@ -505,17 +537,17 @@ def render_home_mission():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### CITATION")
+        st.markdown("### 📚 Citation")
         st.code("""
 DeepBio-Edge: Large-scale Biodiversity Monitoring 
 via Foundation Models on Edge Devices
 
 Global-BioScan Consortium (2026)
 DOI: [Pending Publication]
-        """, language="text")
+        """, language="bibtex")
     
     with col2:
-        st.markdown("### LICENSE & SUPPORT")
+        st.markdown("### ⚖️ License & Support")
         st.markdown("""
         **License:** MIT  
         **GitHub:** github.com/global-bioscan  
@@ -533,13 +565,13 @@ DOI: [Pending Publication]
 
 def render_technical_documentation():
     """Render detailed technical documentation of the pipeline."""
-    st.markdown("# TECHNICAL DOCUMENTATION: The Genomic Processing Pipeline")
+    st.markdown("# 📖 Technical Documentation: The Genomic Processing Pipeline")
     st.markdown("### Understanding the 'Black Box' - A Step-by-Step Walkthrough")
     
     st.divider()
     
     # Pipeline Overview
-    st.markdown("## PIPELINE ARCHITECTURE")
+    st.markdown("## 🔬 Pipeline Architecture")
     
     st.info("""
     **Philosophy:** Global-BioScan transforms raw DNA sequences into taxonomic predictions through 
@@ -549,7 +581,7 @@ def render_technical_documentation():
     """)
     
     # Stage 1
-    with st.expander("STAGE 1: Data Ingestion & Standardization", expanded=True):
+    with st.expander("### 📥 Stage 1: Data Ingestion & Standardization", expanded=True):
         st.markdown("""
         #### Input Sources:
         - **OBIS (Ocean Biodiversity Information System):** Marine biodiversity records with COI barcodes
@@ -575,7 +607,7 @@ def render_technical_documentation():
         """)
     
     # Stage 2
-    with st.expander("STAGE 2: Representation Learning via Nucleotide Transformer", expanded=False):
+    with st.expander("### 🧠 Stage 2: Representation Learning via Nucleotide Transformer", expanded=False):
         st.markdown("""
         #### Model Architecture:
         - **Base Model:** Nucleotide Transformer 500M (InstaDeep)
@@ -609,7 +641,7 @@ def render_technical_documentation():
         """)
     
     # Stage 3
-    with st.expander("STAGE 3: Vector Storage & Indexing (LanceDB)", expanded=False):
+    with st.expander("### 💾 Stage 3: Vector Storage & Indexing (LanceDB)", expanded=False):
         st.markdown("""
         #### Database Schema:
         ```sql
@@ -653,7 +685,7 @@ def render_technical_documentation():
         """)
     
     # Stage 4
-    with st.expander("STAGE 4: Inference & Novelty Detection", expanded=False):
+    with st.expander("### 🎯 Stage 4: Inference & Novelty Detection", expanded=False):
         st.markdown("""
         #### Taxonomic Assignment Algorithm:
         
@@ -703,7 +735,7 @@ def render_technical_documentation():
     st.divider()
     
     # Comparison with Traditional Methods
-    st.markdown("## COMPARISON: Deep Learning vs. Alignment-Based Methods")
+    st.markdown("## ⚖️ Comparison: Deep Learning vs. Alignment-Based Methods")
     
     comparison_df = pd.DataFrame({
         'Method': ['BLAST (Traditional)', 'Global-BioScan (Deep Learning)'],
@@ -721,7 +753,7 @@ def render_technical_documentation():
     
     # Limitations
     st.warning("""
-    ### KNOWN LIMITATIONS:
+    ### ⚠️ Known Limitations:
     1. **Sequence Length:** Optimal for 200-6,000 bp (COI barcodes, 16S rRNA). Very short (<100 bp) or very long (>10 Kbp) may underperform.
     2. **Training Bias:** Model pre-trained on well-studied taxa (mammals, birds). May struggle with under-represented groups (nematodes, protists).
     3. **Horizontal Gene Transfer:** Cannot detect HGT events that violate tree-like evolution assumptions.
@@ -732,26 +764,26 @@ def render_technical_documentation():
     st.divider()
     
     # Future Improvements
-    st.markdown("## ROADMAP & FUTURE ENHANCEMENTS")
+    st.markdown("## 🚀 Roadmap & Future Enhancements")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("""
         ### Q2 2026:
-        - Multi-gene concatenation (COI + 16S + ITS)
-        - Uncertainty quantification (Bayesian embeddings)
-        - Active learning for novel taxa curation
-        - Mobile app for field deployment
+        - [ ] Multi-gene concatenation (COI + 16S + ITS)
+        - [ ] Uncertainty quantification (Bayesian embeddings)
+        - [ ] Active learning for novel taxa curation
+        - [ ] Mobile app for field deployment
         """)
     
     with col2:
         st.markdown("""
         ### Q3-Q4 2026:
-        - Phylogenetic tree integration
-        - Temporal biodiversity tracking
-        - Cloud-sync for collaborative annotations
-        - R/Python SDK for programmatic access
+        - [ ] Phylogenetic tree integration
+        - [ ] Temporal biodiversity tracking
+        - [ ] Cloud-sync for collaborative annotations
+        - [ ] R/Python SDK for programmatic access
         """)
 
 
@@ -761,152 +793,161 @@ def render_technical_documentation():
 
 def render_configuration():
     """Render system configuration and parameter tuning interface."""
-    st.markdown("# SYSTEM CONFIGURATION & CONTROL CENTER")
+    st.markdown("# ⚙️ System Configuration & Control Center")
     st.markdown("### Adjust inference parameters and verify system health")
     
     st.divider()
     
-    # Inference Parameters
-    st.markdown("## INFERENCE PARAMETERS")
+    # Parameter Configuration
+    st.markdown("## 🎛️ Inference Parameters")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### Identity Confidence Threshold")
-        confidence = st.slider(
-            "Minimum confidence for taxonomic assignment",
-            min_value=0.5,
+        st.markdown("### Identity Confidence Threshold (σ)")
+        st.session_state.confidence_threshold = st.slider(
+            "Minimum cosine similarity for taxonomic assignment",
+            min_value=0.0,
             max_value=1.0,
             value=st.session_state.confidence_threshold,
-            step=0.05,
-            help="Sequences below this threshold are flagged as potential novel taxa"
+            step=0.01,
+            key="config_confidence"
         )
-        st.session_state.confidence_threshold = confidence
         
-        # Interpretation guide
-        if confidence >= 0.9:
-            st.success("[HIGH] Strict classification - fewer false positives")
-        elif confidence >= 0.7:
-            st.info("[MODERATE] Balanced sensitivity and specificity")
-        else:
-            st.warning("[LOW] Permissive - may include ambiguous matches")
+        st.info(f"""
+        **Current Value:** {st.session_state.confidence_threshold:.2f}
+        
+        **Interpretation:**
+        - **0.9-1.0:** High stringency (conservative, fewer false positives)
+        - **0.7-0.9:** Moderate stringency (balanced precision/recall)
+        - **0.5-0.7:** Low stringency (permissive, higher recall but more noise)
+        
+        **Recommended:** 0.85 for general use, 0.90 for publication-quality data
+        """)
     
     with col2:
         st.markdown("### K-Nearest Neighbors")
-        k_neighbors = st.slider(
+        st.session_state.top_k_neighbors = st.slider(
             "Number of reference sequences to retrieve",
             min_value=1,
-            max_value=20,
+            max_value=50,
             value=st.session_state.top_k_neighbors,
             step=1,
-            help="Higher K = more robust consensus, but slower"
+            key="config_knn"
         )
-        st.session_state.top_k_neighbors = k_neighbors
         
-        # Use case recommendations
-        if k_neighbors <= 3:
-            st.info("[FAST] Quick inference for well-represented taxa")
-        elif k_neighbors <= 10:
-            st.success("[RECOMMENDED] Balanced speed and accuracy")
-        else:
-            st.warning("[THOROUGH] Comprehensive search for rare taxa")
+        st.info(f"""
+        **Current Value:** {st.session_state.top_k_neighbors}
+        
+        **Interpretation:**
+        - **1-5:** Fast, suitable for well-represented taxa
+        - **10-20:** Consensus-based, reduces noise from outliers
+        - **30-50:** Comprehensive search, useful for ambiguous cases
+        
+        **Recommended:** 5 for standard inference, 20 for novel taxa
+        """)
     
     st.divider()
     
     # Advanced Parameters
-    with st.expander("ADVANCED SETTINGS", expanded=False):
-        st.markdown("### Clustering & Batch Processing")
-        
+    with st.expander("### 🔧 Advanced Parameters (Expert Mode)", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
-            hdbscan_min = st.number_input(
-                "HDBSCAN Minimum Cluster Size",
+            st.markdown("#### HDBSCAN Clustering")
+            st.session_state.hdbscan_min_cluster_size = st.slider(
+                "Minimum Cluster Size",
                 min_value=5,
                 max_value=100,
                 value=st.session_state.hdbscan_min_cluster_size,
                 step=5,
-                help="Smaller values detect finer-grained clusters"
+                key="config_hdbscan"
             )
-            st.session_state.hdbscan_min_cluster_size = hdbscan_min
+            
+            st.caption("Smaller values detect finer-grained novel clusters")
         
         with col2:
-            batch_size = st.number_input(
-                "Batch Processing Size",
-                min_value=10,
-                max_value=1000,
-                value=100,
-                step=10,
-                help="Number of sequences to process simultaneously"
+            st.markdown("#### Batch Processing")
+            batch_size = st.select_slider(
+                "GPU Batch Size",
+                options=[16, 32, 64, 128, 256],
+                value=64
             )
+            
+            st.caption("Larger batches = faster but more VRAM")
     
     st.divider()
     
-    # System Diagnostics
-    st.markdown("## SYSTEM DIAGNOSTICS")
+    # System Check
+    st.markdown("## 🔍 System Health Check")
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        if st.button("Run Full System Diagnostics", type="primary", use_container_width=True):
-            with st.status("Running comprehensive health check...") as status:
+        if st.button("🚀 Run Full System Diagnostics", type="primary", use_container_width=True):
+            with st.status("Running diagnostics...") as status:
                 # Check 1: Database
                 status.update(label="Checking LanceDB connection...")
                 db = load_lancedb()
                 if db:
-                    st.success("[PASS] **LanceDB:** Connection established")
+                    st.success("✅ **LanceDB:** Connected to pendrive vector store")
+                    try:
+                        table = db.open_table(LANCEDB_TABLE_SEQUENCES)
+                        count = table.count_rows()
+                        st.info(f"📊 Database contains {count:,} indexed sequences")
+                    except:
+                        st.warning("⚠️ Table exists but cannot read row count")
                 else:
-                    st.error("[FAIL] **LanceDB:** Connection failed - verify pendrive mount at E:/")
+                    st.error("❌ **LanceDB:** Connection failed - verify pendrive mount at E:/")
                 
                 # Check 2: Embedding Engine
                 status.update(label="Checking Nucleotide Transformer...")
                 if EMBEDDING_AVAILABLE:
                     engine = load_embedding_engine()
                     if engine:
-                        st.success("[PASS] **Embedding Engine:** Nucleotide Transformer loaded (500M params)")
+                        st.success("✅ **Embedding Engine:** Nucleotide Transformer loaded (500M params)")
                     else:
-                        st.error("[FAIL] **Embedding Engine:** Failed to initialize model")
+                        st.error("❌ **Embedding Engine:** Failed to initialize model")
                 else:
-                    st.warning("[WARN] **Embedding Engine:** Transformers library unavailable - using mock embeddings")
+                    st.warning("⚠️ **Embedding Engine:** Transformers library unavailable - using mock embeddings")
                 
                 # Check 3: Taxonomy Predictor
                 status.update(label="Checking taxonomy predictor...")
                 predictor = load_taxonomy_predictor()
                 if predictor:
-                    st.success("[PASS] **Taxonomy Predictor:** Initialized and ready")
+                    st.success("✅ **Taxonomy Predictor:** Initialized and ready")
                 else:
-                    st.error("[FAIL] **Taxonomy Predictor:** Failed to load")
+                    st.error("❌ **Taxonomy Predictor:** Failed to load")
                 
                 # Check 4: Novelty Detector
                 status.update(label="Checking novelty detector...")
                 detector = load_novelty_detector()
                 if detector:
-                    st.success("[PASS] **Novelty Detector:** HDBSCAN clustering ready")
+                    st.success("✅ **Novelty Detector:** HDBSCAN clustering ready")
                 else:
-                    st.error("[FAIL] **Novelty Detector:** Failed to load")
+                    st.error("❌ **Novelty Detector:** Failed to load")
                 
-                status.update(label="[COMPLETE] Diagnostics complete", state="complete")
+                status.update(label="✅ Diagnostics complete", state="complete")
     
     with col2:
-        st.markdown("### QUICK STATS")
+        st.markdown("### 📊 Quick Stats")
         status = get_database_status()
         
-        db_status_text = "[ONLINE]" if status["status"] == "connected" else "[OFFLINE]"
-        model_status_text = "[READY]" if EMBEDDING_AVAILABLE else "[LIMITED]"
-        
-        st.metric("Database Status", db_status_text)
-        st.metric("Model Status", model_status_text)
+        st.metric("Database Status", 
+                  "🟢 Online" if status["status"] == "connected" else "🔴 Offline")
+        st.metric("Model Status", 
+                  "🟢 Ready" if EMBEDDING_AVAILABLE else "🟡 Limited")
         st.metric("Sequences", f"{status['sequences']:,}")
     
     st.divider()
     
     # Export Configuration
-    st.markdown("## CONFIGURATION MANAGEMENT")
+    st.markdown("## 💾 Configuration Management")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("Export Current Configuration"):
+        if st.button("📥 Export Current Configuration"):
             config_dict = {
                 "confidence_threshold": st.session_state.confidence_threshold,
                 "top_k_neighbors": st.session_state.top_k_neighbors,
@@ -925,13 +966,17 @@ def render_configuration():
     
     with col2:
         st.markdown("**Reset to Defaults:**")
-        if st.button("Reset All Parameters"):
+        if st.button("🔄 Reset All Parameters"):
             st.session_state.confidence_threshold = 0.85
             st.session_state.top_k_neighbors = 5
             st.session_state.hdbscan_min_cluster_size = 10
-            st.success("[DONE] Parameters reset to default values")
+            st.success("✅ Parameters reset to default values")
             st.rerun()
 
+
+# ============================================================================
+# TAB 1: TAXONOMIC INFERENCE ENGINE
+# ============================================================================
 
 # ============================================================================
 # TAXONOMIC INFERENCE ENGINE TAB
@@ -939,13 +984,13 @@ def render_configuration():
 
 def render_taxonomic_inference_engine():
     """Professional taxonomic inference interface with batch processing."""
-    st.header("TAXONOMIC INFERENCE ENGINE")
+    st.header("🔬 Taxonomic Inference Engine")
     st.markdown("Execute deep learning-based taxonomic classification on DNA sequences.")
     
     st.divider()
     
     # Inference Logic Explanation
-    with st.expander("HOW THIS INFERENCE ENGINE WORKS", expanded=False):
+    with st.expander("📘 **How This Inference Engine Works**", expanded=False):
         st.markdown("""
         ### Mathematical Foundation: Cosine Similarity in 768-Dimensional Latent Space
         
@@ -996,7 +1041,7 @@ def render_taxonomic_inference_engine():
     st.info(f"""
     **Current Configuration:**  
     Confidence Threshold (σ): {similarity_threshold:.2f} | K-Neighbors: {top_k_neighbors}  
-    *(Adjust these in the Configuration tab)*
+    *(Adjust these in the ⚙️ Configuration tab)*
     """)
     
     # Processing Mode Selection
@@ -1013,7 +1058,7 @@ def render_taxonomic_inference_engine():
     st.divider()
     
     # File Upload or Text Input
-    st.subheader("GENETIC INPUT CONFIGURATION")
+    st.subheader("📂 Genetic Input Configuration")
     
     input_method = st.radio(
         "Input Method",
@@ -1035,10 +1080,10 @@ def render_taxonomic_inference_engine():
                 sequences_to_process = parse_bio_file(uploaded_file)
             
             if sequences_to_process:
-                st.success(f"[PARSED] {len(sequences_to_process)} valid sequences from file")
+                st.success(f"✅ Parsed {len(sequences_to_process)} valid sequences from file")
                 
                 # Preview
-                with st.expander("SEQUENCE PREVIEW"):
+                with st.expander("📋 Sequence Preview"):
                     preview_df = pd.DataFrame(sequences_to_process[:10])  # Show first 10
                     preview_df['sequence_length'] = preview_df['sequence'].str.len()
                     st.dataframe(preview_df, use_container_width=True)
@@ -1055,13 +1100,13 @@ def render_taxonomic_inference_engine():
             )
         
         with col2:
-            st.markdown("### QUICK ACTIONS")
-            if st.button("Load Reference Template"):
+            st.markdown("### Quick Actions")
+            if st.button("📋 Load Reference Template"):
                 reference_seq = "ATGCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
                 st.session_state.sequence_input = reference_seq
                 st.rerun()
             
-            if st.button("Clear"):
+            if st.button("🗑️ Clear"):
                 st.session_state.sequence_input = ""
                 st.rerun()
         
@@ -1077,9 +1122,9 @@ def render_taxonomic_inference_engine():
     st.divider()
     
     # Execute Inference Button
-    if st.button("Execute Inference", type="primary", use_container_width=True):
+    if st.button("🚀 Execute Inference", type="primary", use_container_width=True):
         if not sequences_to_process:
-            st.warning("[WARN] No sequences to process. Please upload a file or enter a sequence.")
+            st.warning("⚠️ No sequences to process. Please upload a file or enter a sequence.")
             return
         
         # Load resources
@@ -1087,11 +1132,11 @@ def render_taxonomic_inference_engine():
         predictor = load_taxonomy_predictor()
         
         if engine is None and processing_mode == "Batch Processing":
-            st.error("[FAIL] Embedding engine unavailable. Cannot perform batch processing.")
+            st.error("🔴 Embedding engine unavailable. Cannot perform batch processing.")
             return
         
         if predictor is None:
-            st.error("[FAIL] Taxonomy predictor unavailable.")
+            st.error("🔴 Taxonomy predictor unavailable.")
             return
         
         # Process sequences
@@ -1104,39 +1149,54 @@ def render_taxonomic_inference_engine():
             with st.status("Processing sequence...") as status_container:
                 status_container.update(label="Validating sequence format...")
                 
-                # Generate embedding
+                # Validate
+                sequence = seq_record['sequence']
+                valid_chars = set('ATGCNRYSWKMBDHV')
+                if not all(c in valid_chars for c in sequence):
+                    st.error("❌ Invalid DNA sequence. Only IUPAC nucleotide codes allowed.")
+                    return
+                
+                status_container.update(label="Generating embeddings...")
+                
+                # Get embedding
                 if engine:
-                    status_container.update(label="Generating 768-dim embedding...")
-                    embedding = engine.embed_single(seq_record['sequence'])
+                    try:
+                        vector = engine.get_embedding_single(sequence)
+                    except Exception as e:
+                        st.error(f"Embedding error: {e}")
+                        return
                 else:
-                    # Mock embedding
-                    embedding = np.random.randn(768).tolist()
+                    st.warning("Using mock embeddings (model unavailable)")
+                    from src.benchmarks.mock_community import deterministic_vector
+                    vector = deterministic_vector(sequence)
                 
-                # Perform prediction
-                status_container.update(label="Querying vector database...")
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
-                neighbors = prediction.neighbors if hasattr(prediction, 'neighbors') else []
+                status_container.update(label="Searching vector database...")
                 
-                status_container.update(label="[COMPLETE] Analysis complete", state="complete")
+                # Predict taxonomy
+                neighbors = predictor.search_neighbors(vector.tolist(), k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbors)
+                
+                status_container.update(label="✅ Inference complete", state="complete")
             
-            # Display results
+            # Display result
             st.divider()
-            st.subheader("TAXONOMIC CLASSIFICATION RESULT")
+            st.subheader("📊 Taxonomic Classification Result")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.metric("Sequence ID", seq_record['id'])
-                st.metric("Length (bp)", len(seq_record['sequence']))
-            
+                st.markdown(f"**Sequence ID:** `{seq_record['id']}`")
+                st.markdown(f"**Length:** {len(sequence)} bp")
+                st.markdown(f"**Predicted Lineage:**")
+                st.code(prediction.lineage, language="")
+                
             with col2:
-                confidence_color = "normal" if prediction.confidence >= 0.85 else "inverse"
-                st.metric("Predicted Lineage", prediction.lineage.split(';')[-1])
+                confidence_color = "🟢" if prediction.confidence > 0.9 else "🟡" if prediction.confidence > 0.7 else "🔴"
                 st.metric("Confidence Score", f"{prediction.confidence:.3f}", delta=confidence_color)
                 st.metric("Classification Status", prediction.status)
             
             # Nearest Neighbors Table
-            st.subheader("K-NEAREST REFERENCE SEQUENCES")
+            st.subheader("🔍 K-Nearest Reference Sequences")
             neighbors_df = pd.DataFrame([
                 {
                     'Rank': i+1,
@@ -1149,32 +1209,44 @@ def render_taxonomic_inference_engine():
             st.dataframe(neighbors_df, use_container_width=True)
         
         else:
-            # Batch mode
-            st.subheader("BATCH PROCESSING")
+            # Batch processing mode
+            st.subheader("⚙️ Batch Processing Pipeline")
             
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Stage 1: Embedding generation
-            status_text.text(f"Stage 1/3: Generating embeddings for {len(sequences_to_process)} sequences...")
-            embeddings = []
+            # Batch embed all sequences
+            status_text.text("Stage 1/3: Generating embeddings (vectorized)...")
             
-            for idx, seq_record in enumerate(sequences_to_process):
-                if engine:
-                    emb = engine.embed_single(seq_record['sequence'])
-                else:
-                    emb = np.random.randn(768).tolist()
-                embeddings.append(emb)
-                progress_bar.progress(int((idx + 1) / len(sequences_to_process) * 33))
+            if engine:
+                try:
+                    sequences = [s['sequence'] for s in sequences_to_process]
+                    embeddings = engine.get_embeddings(sequences)
+                except Exception as e:
+                    st.error(f"Batch embedding error: {e}")
+                    return
+            else:
+                from src.benchmarks.mock_community import build_mock_embeddings
+                from src.benchmarks.mock_community import MockCommunityEntry
+                
+                mock_entries = [
+                    MockCommunityEntry(s['id'], s['sequence'], "", "")
+                    for s in sequences_to_process
+                ]
+                embeddings = build_mock_embeddings(mock_entries)
             
-            # Stage 2: Inference
-            status_text.text("Stage 2/3: Performing taxonomic inference...")
+            progress_bar.progress(33)
+            status_text.text("Stage 2/3: Searching vector database...")
             
+            # Process each sequence
             for idx, (seq_record, embedding) in enumerate(zip(sequences_to_process, embeddings)):
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
+                neighbors = predictor.search_neighbors(embedding.tolist(), k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbors)
                 
                 results.append({
-                    'sequence_id': seq_record['id'],
+                    'id': seq_record['id'],
+                    'sequence': seq_record['sequence'][:50] + '...' if len(seq_record['sequence']) > 50 else seq_record['sequence'],
+                    'sequence_length': len(seq_record['sequence']),
                     'predicted_lineage': prediction.lineage,
                     'confidence': prediction.confidence,
                     'status': prediction.status
@@ -1187,7 +1259,7 @@ def render_taxonomic_inference_engine():
             
             # Display batch results
             st.divider()
-            st.subheader("BATCH INFERENCE SUMMARY")
+            st.subheader("📊 Batch Inference Summary")
             
             results_df = pd.DataFrame(results)
             
@@ -1221,14 +1293,18 @@ def render_taxonomic_inference_engine():
             # Export button
             csv_data = export_darwin_core_csv(results)
             st.download_button(
-                label="Download Darwin Core CSV",
+                label="📥 Download Darwin Core CSV",
                 data=csv_data,
                 file_name=f"bioscan_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
             
-            st.success(f"[COMPLETE] Batch inference complete: {len(results)} sequences processed")
+            st.success(f"✅ Batch inference complete: {len(results)} sequences processed")
 
+
+# ============================================================================
+# TAB 2: LATENT SPACE ANALYSIS
+# ============================================================================
 
 # ============================================================================
 # LATENT SPACE ANALYSIS TAB
@@ -1236,13 +1312,13 @@ def render_taxonomic_inference_engine():
 
 def render_latent_space_analysis():
     """Visualize embedding space with dimensionality reduction."""
-    st.header("LATENT SPACE MANIFOLD ANALYSIS")
+    st.header("🗺️ Latent Space Analysis")
     st.markdown("Interactive visualization of high-dimensional genomic embeddings.")
     
     st.divider()
     
     # Explanation Box
-    with st.expander("UNDERSTANDING DIMENSIONALITY REDUCTION & EVOLUTIONARY DISTANCES", expanded=False):
+    with st.expander("📘 **Understanding Dimensionality Reduction & Evolutionary Distances**", expanded=False):
         st.markdown("""
         ### From 768 Dimensions to 3D: The Visualization Challenge
         
@@ -1261,13 +1337,13 @@ def render_latent_space_analysis():
         
         **Interpreting Distances in the Plot:**
         
-        **CLOSE POINTS (Small Euclidean Distance):**
+        🔵 **Close Points (Small Distance):**
         - Similar DNA sequences
         - Same genus or family
         - Recent common ancestor
         - Example: Two *Escherichia coli* strains
         
-        **DISTANT POINTS (Large Euclidean Distance):**
+        🔴 **Distant Points (Large Distance):**
         - Divergent sequences
         - Different phyla or kingdoms
         - Ancient evolutionary split
@@ -1303,7 +1379,7 @@ def render_latent_space_analysis():
         count = table.count_rows()
         
         if count == 0:
-            st.warning("[WARN] No sequences in database yet.")
+            st.warning("⚠️ No sequences in database yet.")
             return
         
     except Exception as e:
@@ -1373,134 +1449,107 @@ def render_latent_space_analysis():
                 data['phylum'] = data['lineage'].apply(
                     lambda x: x.split(';')[1] if ';' in str(x) and len(x.split(';')) > 1 else 'Unknown'
                 )
+                color_by = data['phylum']
             else:
-                data['phylum'] = 'Unknown'
+                color_by = 'blue'
             
-            # Create 3D scatter plot
-            fig = go.Figure(data=[go.Scatter3d(
-                x=embeddings_3d[:, 0],
-                y=embeddings_3d[:, 1],
-                z=embeddings_3d[:, 2],
-                mode='markers',
-                marker=dict(
-                    size=4,
-                    color=pd.Categorical(data['phylum']).codes,
-                    colorscale='Viridis',
-                    showscale=True,
-                    colorbar=dict(title="Phylum")
-                ),
-                text=data['phylum'],
-                hovertemplate='<b>%{text}</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<br>Z: %{z:.2f}<extra></extra>'
-            )])
+            fig = go.Figure(data=[
+                go.Scatter3d(
+                    x=embeddings_3d[:, 0],
+                    y=embeddings_3d[:, 1],
+                    z=embeddings_3d[:, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=3,
+                        color=color_by if isinstance(color_by, str) else range(len(embeddings_3d)),
+                        colorscale='Viridis',
+                        opacity=0.7
+                    ),
+                    text=data.get('sequence_id', 'unknown'),
+                    hovertemplate='<b>%{text}</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<br>Z: %{z:.2f}<extra></extra>'
+                )
+            ])
             
             fig.update_layout(
-                title=f"Genomic Latent Space Manifold ({reduction_method})",
+                title=f"{reduction_method} Projection of Genomic Embedding Space",
                 scene=dict(
-                    xaxis_title=f'{reduction_method} Component 1',
-                    yaxis_title=f'{reduction_method} Component 2',
-                    zaxis_title=f'{reduction_method} Component 3',
+                    xaxis_title=f"{reduction_method} Component 1",
+                    yaxis_title=f"{reduction_method} Component 2",
+                    zaxis_title=f"{reduction_method} Component 3",
                     bgcolor='#0a1929'
                 ),
                 paper_bgcolor='#0a1929',
                 plot_bgcolor='#0a1929',
-                font=dict(color='#66d9ef'),
+                font=dict(color='#ffffff'),
                 height=700
             )
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Summary stats
+            # Statistics
             st.divider()
-            st.subheader("EMBEDDING SPACE STATISTICS")
-            
             col1, col2, col3 = st.columns(3)
-            
             with col1:
-                st.metric("Total Sequences", len(data))
-            
+                st.metric("Vectors Visualized", len(embeddings_3d))
             with col2:
-                unique_phyla = data['phylum'].nunique()
-                st.metric("Unique Phyla", unique_phyla)
-            
+                st.metric("Original Dimensionality", embeddings.shape[1])
             with col3:
-                explained_var = "N/A"
-                if reduction_method == "PCA":
-                    explained_var = f"{reducer.explained_variance_ratio_.sum():.2%}"
-                st.metric("Variance Explained", explained_var)
-        
+                st.metric("Reduced Dimensionality", 3)
+            
         except Exception as e:
-            st.error(f"Visualization error: {e}")
-            logger.error(f"Latent space analysis error: {e}", exc_info=True)
+            st.error(f"Visualization error: {str(e)}")
+            logger.error(f"Latent space visualization error: {e}", exc_info=True)
 
+
+# ============================================================================
+# TAB 3: ECOLOGICAL COMPOSITION
+# ============================================================================
 
 # ============================================================================
 # ECOLOGICAL COMPOSITION TAB
 # ============================================================================
 
 def render_ecological_composition():
-    """Render ecological diversity metrics and functional trait analysis."""
-    st.header("ECOLOGICAL COMPOSITION & BIODIVERSITY METRICS")
-    st.markdown("Quantify community structure and functional traits from genomic data.")
+    """Display biodiversity metrics and ecological analysis."""
+    st.header("🌿 Ecological Composition Analysis")
+    st.markdown("Comprehensive biodiversity assessment and taxonomic distribution.")
     
     st.divider()
     
     # Explanation Box
-    with st.expander("UNDERSTANDING BIODIVERSITY METRICS & FUNCTIONAL TRAITS", expanded=False):
+    with st.expander("📘 **Understanding Biodiversity Metrics & Functional Traits**", expanded=False):
         st.markdown("""
-        ### Alpha Diversity: Within-Sample Richness
+        ### Ecological Analysis Framework
         
-        **Shannon Index (H'):**
+        This module provides **quantitative biodiversity assessment** based on taxonomic composition 
+        extracted from eDNA sequences. We compute standard ecological metrics to characterize community structure.
+        
+        **Alpha Diversity (Within-Sample):**
+        - **Species Richness:** Total number of unique species detected
+        - **Shannon Index:** Accounts for both richness and evenness (H' = -Σ pᵢ ln(pᵢ))
+        - **Simpson Index:** Probability that two randomly selected individuals are different species
+        
+        **Beta Diversity (Between-Samples):**
+        - **Bray-Curtis Dissimilarity:** Compositional difference between communities
+        - **Jaccard Index:** Presence/absence similarity
+        
+        **Functional Traits:**
+        - **Trophic Levels:** Producer, Primary Consumer, Secondary Consumer, etc.
+        - **Habitat Preferences:** Pelagic, Benthic, Terrestrial
+        - **Thermal Tolerance:** Psychrophile, Mesophile, Thermophile
+        
+        **Interpretation Example:**
         ```
-        H' = -Σ(pᵢ × ln(pᵢ))
-        where pᵢ = proportion of species i
-        
-        Interpretation:
-        - 0-1:   Low diversity (monoculture)
-        - 1-3:   Moderate diversity
-        - 3+:    High diversity (pristine ecosystem)
+        Sample A: 150 species, Shannon H' = 4.2  → High diversity, evensite distribution
+        Sample B:  50 species, Shannon H' = 2.1  → Low diversity, dominated by few taxa
         ```
         
-        **Simpson Index (D):**
-        ```
-        D = 1 - Σ(pᵢ²)
-        
-        Interpretation:
-        - 0:     Single species dominance
-        - 0.5:   Moderate evenness
-        - 0.9+:  High evenness (no dominant species)
-        ```
-        
-        ### Beta Diversity: Between-Sample Dissimilarity
-        
-        **Bray-Curtis Dissimilarity:**
-        - Compares species composition between two sites
-        - Range: [0, 1] where 0 = identical, 1 = completely different
-        
-        **Use Case:**
-        - Track temporal changes in ecosystems
-        - Compare pristine vs. disturbed habitats
-        
-        ### Functional Traits
-        
-        | Trait Category | Examples | Ecological Role |
-        |----------------|----------|-----------------|
-        | **Trophic Level** | Herbivore, Carnivore, Detritivore | Energy flow in food webs |
-        | **Habitat Preference** | Benthic, Pelagic, Terrestrial | Niche partitioning |
-        | **Thermal Tolerance** | Psychrophile, Mesophile, Thermophile | Climate adaptation |
-        | **Salinity Range** | Freshwater, Marine, Brackish | Osmoregulation capacity |
-        
-        **Why Functional Traits Matter:**
-        - Taxonomic diversity alone doesn't predict ecosystem function
-        - 100 species of zooplankton < 10 species spanning multiple trophic levels
-        - Functional redundancy = resilience to perturbations
-        
-        ### Taxonomic Hierarchy
-        
+        **Taxonomic Rank Levels (Linnaean Hierarchy):**
         ```
         Kingdom → Phylum → Class → Order → Family → Genus → Species
         
-        Example: Homo sapiens
-        Eukaryota;Chordata;Mammalia;Primates;Hominidae;Homo;sapiens
+        Example: Humpback Whale
+        Animalia; Chordata; Mammalia; Cetacea; Balaenopteridae; Megaptera; novaeangliae
         ```
         """)
     
@@ -1514,50 +1563,53 @@ def render_ecological_composition():
         data = table.to_pandas()
         
         if len(data) == 0:
-            st.warning("[WARN] No sequences in database yet.")
+            st.warning("⚠️ No ecological data available yet.")
             return
         
-        # Extract taxonomy levels
-        if 'lineage' in data.columns:
-            taxonomy_cols = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']
-            
-            for idx, col in enumerate(taxonomy_cols):
-                data[col] = data['lineage'].apply(
-                    lambda x: x.split(';')[idx] if isinstance(x, str) and len(x.split(';')) > idx else 'Unknown'
-                )
+        if 'lineage' not in data.columns:
+            st.warning("⚠️ Lineage information not available in database.")
+            return
         
-        st.divider()
+        # Parse lineages
+        def parse_lineage(lineage_str):
+            parts = str(lineage_str).split(';')
+            return {
+                'kingdom': parts[0] if len(parts) > 0 else 'Unknown',
+                'phylum': parts[1] if len(parts) > 1 else 'Unknown',
+                'class': parts[2] if len(parts) > 2 else 'Unknown',
+                'order': parts[3] if len(parts) > 3 else 'Unknown',
+                'family': parts[4] if len(parts) > 4 else 'Unknown',
+                'genus': parts[5] if len(parts) > 5 else 'Unknown',
+                'species': parts[6] if len(parts) > 6 else 'Unknown',
+            }
         
-        # Diversity Metrics
-        st.subheader("ALPHA DIVERSITY INDICES")
+        lineage_parsed = data['lineage'].apply(parse_lineage)
+        for rank in ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']:
+            data[rank] = lineage_parsed.apply(lambda x: x[rank])
         
-        col1, col2, col3 = st.columns(3)
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            # Shannon diversity
-            if 'species' in data.columns:
-                species_counts = data['species'].value_counts()
-                proportions = species_counts / species_counts.sum()
-                shannon = -np.sum(proportions * np.log(proportions))
-                st.metric("Shannon Index (H')", f"{shannon:.2f}")
-        
+            st.metric("Total Sequences", len(data))
         with col2:
-            # Simpson diversity
-            if 'species' in data.columns:
-                simpson = 1 - np.sum(proportions ** 2)
-                st.metric("Simpson Index (D)", f"{simpson:.3f}")
-        
+            unique_species = data['species'].nunique()
+            st.metric("Unique Species", unique_species)
         with col3:
-            # Species richness
-            unique_species = data['species'].nunique() if 'species' in data.columns else 0
-            st.metric("Species Richness (S)", unique_species)
+            unique_genera = data['genus'].nunique()
+            st.metric("Unique Genera", unique_genera)
+        with col4:
+            unique_phyla = data['phylum'].nunique()
+            st.metric("Unique Phyla", unique_phyla)
         
         st.divider()
         
-        # Taxonomic Distribution
-        st.subheader("TAXONOMIC COMPOSITION")
+        # Taxonomic Distribution Charts
+        col1, col2 = st.columns(2)
         
-        if 'phylum' in data.columns:
+        with col1:
+            st.subheader("📊 Phylum Distribution")
+            
             phylum_counts = data['phylum'].value_counts().head(10)
             
             if px:
@@ -1569,26 +1621,29 @@ def render_ecological_composition():
                 )
                 fig.update_layout(
                     paper_bgcolor='#0a1929',
-                    plot_bgcolor='#1a2332',
-                    font=dict(color='#66d9ef')
+                    plot_bgcolor='#132f4c',
+                    font=dict(color='#ffffff')
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.bar_chart(phylum_counts)
         
-        # Class-level distribution
-        if 'class' in data.columns:
+        with col2:
+            st.subheader("🧬 Class Distribution")
+            
             class_counts = data['class'].value_counts().head(10)
             
             if px:
-                fig = px.pie(
-                    values=class_counts.values,
-                    names=class_counts.index,
-                    title='Class-Level Distribution'
+                fig = px.bar(
+                    x=class_counts.index,
+                    y=class_counts.values,
+                    labels={'x': 'Class', 'y': 'Sequence Count'},
+                    title='Top 10 Classes by Abundance'
                 )
                 fig.update_layout(
                     paper_bgcolor='#0a1929',
-                    font=dict(color='#66d9ef')
+                    plot_bgcolor='#132f4c',
+                    font=dict(color='#ffffff')
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
@@ -1597,7 +1652,7 @@ def render_ecological_composition():
         st.divider()
         
         # Detailed Taxonomy Table
-        st.subheader("TAXONOMIC INVENTORY")
+        st.subheader("🔬 Taxonomic Inventory")
         
         taxonomy_summary = data.groupby(['kingdom', 'phylum', 'class', 'order']).size().reset_index(name='count')
         taxonomy_summary = taxonomy_summary.sort_values('count', ascending=False)
@@ -1621,17 +1676,17 @@ def main():
     """Main application entry point with horizontal tab navigation."""
     
     # Header
-    st.markdown("# Global-BioScan: Genomic Analysis Platform")
-    st.markdown("**v3.0 Professional Edition** | Deep Learning-Powered Taxonomic Inference from Environmental DNA")
+    st.markdown("# 🧬 Global-BioScan: Genomic Analysis Platform")
+    st.markdown("**v3.0 Professional** | Deep Learning-Powered Taxonomic Inference from Environmental DNA")
     
     # Horizontal Navigation Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "Overview",
-        "Pipeline Documentation",
-        "System Configuration",
-        "Taxonomic Inference",
-        "Latent Space Analysis",
-        "Ecological Composition"
+        "🏠 Home & Mission",
+        "📖 Technical Documentation",
+        "⚙️ Configuration",
+        "🔬 Taxonomic Inference",
+        "🌌 Latent Space Analysis",
+        "📊 Ecological Composition"
     ])
     
     with tab1:
