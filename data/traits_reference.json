@@ -1,0 +1,210 @@
+{
+  "Bacteria|Bacteroidota|Bacteroidia|Bacteroidales|Rikenellaceae|Alistipes|Alistipes finegoldii": {
+    "source": "FAPROTAX",
+    "confidence": 0.95,
+    "functional_role": "Decomposer",
+    "trophic_group": "Heterotroph",
+    "metabolic_pathway": "Anaerobic Heterotrophy",
+    "habitat": "Freshwater",
+    "traits": [
+      "Anaerobic degradation",
+      "Polysaccharide fermentation",
+      "SCFA producer"
+    ]
+  },
+  "Bacteria|Proteobacteria|Gammaproteobacteria|Vibronales|Vibrionaceae|Vibrio|Vibrio parahaemolyticus": {
+    "source": "WoRMS",
+    "confidence": 0.92,
+    "functional_role": "Heterotroph",
+    "trophic_group": "Primary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Marine pathogen",
+      "Motile",
+      "Salt-tolerant"
+    ]
+  },
+  "Bacteria|Proteobacteria|Gammaproteobacteria|Thiotrichales|Thiotrichaceae|Thioploca|Thioploca araucae": {
+    "source": "FAPROTAX",
+    "confidence": 0.88,
+    "functional_role": "Nitrifier",
+    "trophic_group": "Chemolithoautotroph",
+    "metabolic_pathway": "Chemosynthesis",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Sulfur oxidation",
+      "Nitrate reduction",
+      "Filamentous"
+    ]
+  },
+  "Bacteria|Proteobacteria|Alphaproteobacteria|Rhizobiales|Bradyrhizobiaceae|Bradyrhizobium|Bradyrhizobium japonicum": {
+    "source": "FAPROTAX",
+    "confidence": 0.93,
+    "functional_role": "Nitrifier",
+    "trophic_group": "Chemolithoautotroph",
+    "metabolic_pathway": "Nitrogen Cycling",
+    "habitat": "Soil/Sediment",
+    "traits": [
+      "Nitrogen fixation",
+      "Root nodule symbiosis",
+      "Aerobic"
+    ]
+  },
+  "Archaea|Euryarchaeota|Methanococci|Methanococcales|Methanococcaceae|Methanococcus|Methanococcus aeolicus": {
+    "source": "FAPROTAX",
+    "confidence": 0.91,
+    "functional_role": "Decomposer",
+    "trophic_group": "Chemolithoautotroph",
+    "metabolic_pathway": "Methane Cycling",
+    "habitat": "Deep-Sea Hydrothermal Vent",
+    "traits": [
+      "Methane production",
+      "Extreme thermophile",
+      "Hydrogenotrophic"
+    ]
+  },
+  "Bacteria|Proteobacteria|Gammaproteobacteria|Beggiatoales|Beggiatoaceae|Beggiatoa|Beggiatoa alba": {
+    "source": "FAPROTAX",
+    "confidence": 0.89,
+    "functional_role": "Nitrifier",
+    "trophic_group": "Chemolithoautotroph",
+    "metabolic_pathway": "Nitrogen Cycling",
+    "habitat": "Deep-Sea Hydrothermal Vent",
+    "traits": [
+      "Sulfur oxidation",
+      "Nitrate reduction",
+      "Chemosynthetic"
+    ]
+  },
+  "Eukaryota|Animalia|Arthropoda|Insecta|Coleoptera|Carabidae|Calosoma|Calosoma scrutator": {
+    "source": "WoRMS",
+    "confidence": 0.94,
+    "functional_role": "Predator",
+    "trophic_group": "Secondary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Soil/Sediment",
+    "traits": [
+      "Predatory",
+      "Terrestrial",
+      "Nocturnal"
+    ]
+  },
+  "Eukaryota|Animalia|Chordata|Actinopterygii|Gadiformes|Gadidae|Gadus|Gadus morhua": {
+    "source": "WoRMS",
+    "confidence": 0.96,
+    "functional_role": "Predator",
+    "trophic_group": "Tertiary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Piscivorous",
+      "Migratory",
+      "Economically important"
+    ]
+  },
+  "Eukaryota|Plantae|Chlorophyta|Chlorophyceae|Chlamydomonadales|Chlamydomonadaceae|Chlamydomonas|Chlamydomonas reinhardtii": {
+    "source": "WoRMS",
+    "confidence": 0.97,
+    "functional_role": "Primary Producer",
+    "trophic_group": "Primary Producer",
+    "metabolic_pathway": "Photosynthesis",
+    "habitat": "Freshwater",
+    "traits": [
+      "Photosynthetic",
+      "Unicellular",
+      "Motile flagella"
+    ]
+  },
+  "Eukaryota|Animalia|Arthropoda|Copepoda|Calanoida|Calanidae|Calanus|Calanus finmarchicus": {
+    "source": "WoRMS",
+    "confidence": 0.95,
+    "functional_role": "Filter Feeder",
+    "trophic_group": "Primary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Zooplankton",
+      "Filter feeding",
+      "Diatom diet"
+    ]
+  },
+  "Eukaryota|Animalia|Nematoda|Chromadorea|Rhabditida|Rhabditidae|Caenorhabditis|Caenorhabditis elegans": {
+    "source": "FAPROTAX",
+    "confidence": 0.92,
+    "functional_role": "Decomposer",
+    "trophic_group": "Primary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Soil/Sediment",
+    "traits": [
+      "Bacterial feeder",
+      "Nematode",
+      "Model organism"
+    ]
+  },
+  "Bacteria|Proteobacteria|Gammaproteobacteria|Alteromonadales|Alteromonadaceae|Alteromonas|Alteromonas macleodii": {
+    "source": "FAPROTAX",
+    "confidence": 0.87,
+    "functional_role": "Heterotroph",
+    "trophic_group": "Heterotroph",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Marine heterotroph",
+      "Chitinolytic",
+      "Proteolytic"
+    ]
+  },
+  "Bacteria|Acidobacteria|Acidobacteriia|Acidobacteriales|Acidobacteriaceae|Granicella|Granicella tundricola": {
+    "source": "FAPROTAX",
+    "confidence": 0.84,
+    "functional_role": "Decomposer",
+    "trophic_group": "Heterotroph",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Soil/Sediment",
+    "traits": [
+      "Polymeric decomposition",
+      "Acidophilic",
+      "Oligotrophic"
+    ]
+  },
+  "Eukaryota|Animalia|Arthropoda|Arachnida|Acari|Mesostigmata|Parasitidae|Parasitus|Parasitus fimetorum": {
+    "source": "WoRMS",
+    "confidence": 0.90,
+    "functional_role": "Predator",
+    "trophic_group": "Secondary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Soil/Sediment",
+    "traits": [
+      "Mite predator",
+      "Nematophagous",
+      "Soil dweller"
+    ]
+  },
+  "Bacteria|Proteobacteria|Gammaproteobacteria|Pseudomonadales|Pseudomonadaceae|Pseudomonas|Pseudomonas aeruginosa": {
+    "source": "FAPROTAX",
+    "confidence": 0.93,
+    "functional_role": "Decomposer",
+    "trophic_group": "Heterotroph",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Planktonic",
+    "traits": [
+      "Biofilm former",
+      "Pathogenic",
+      "Metabolically versatile"
+    ]
+  },
+  "Eukaryota|Animalia|Cnidaria|Anthozoa|Actiniaria|Actiniidae|Actinia|Actinia equina": {
+    "source": "WoRMS",
+    "confidence": 0.91,
+    "functional_role": "Predator",
+    "trophic_group": "Secondary Consumer",
+    "metabolic_pathway": "Aerobic Heterotrophy",
+    "habitat": "Shallow Water",
+    "traits": [
+      "Sessile predator",
+      "Sea anemone",
+      "Zooxanthellate"
+    ]
+  }
+}

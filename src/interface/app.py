@@ -1,15 +1,34 @@
+"""Streamlit web interface for Global-BioScan pipeline.
+
+This module requires streamlit and plotly to be installed.
+Install with: pip install streamlit plotly
+"""
+# pyright: reportOptionalMemberAccess=false
 # ============================================================================
 # WINDOWS COMPATIBILITY PATCHES (Must be at top!)
 # ============================================================================
 # Mock Triton and FlashAttention to prevent ImportError on Windows
+# type: ignore - Optional dependencies (streamlit, plotly) may not be installed
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
-# Mock triton (CUDA kernel optimizer, Linux-only)
+# Add project root to sys.path so 'src' module can be imported
+_project_root = Path(__file__).parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Mock triton and all its submodules (CUDA kernel optimizer, Linux-only)
 if sys.platform == "win32" or True:  # Force mock for safety
-    sys.modules["triton"] = MagicMock()
-    sys.modules["triton.language"] = MagicMock()
-    sys.modules["triton.ops"] = MagicMock()
+    triton_mock = MagicMock()
+    sys.modules["triton"] = triton_mock
+    sys.modules["triton.language"] = triton_mock
+    sys.modules["triton.ops"] = triton_mock
+    sys.modules["triton.backends"] = triton_mock
+    sys.modules["triton.backends.compiler"] = triton_mock
+    sys.modules["triton.compiler"] = triton_mock
+    sys.modules["triton.compiler.compiler"] = triton_mock
+    sys.modules["triton.runtime"] = triton_mock
 
 # Mock flash_attn (FastTransformer kernels, Linux-only)
 sys.modules["flash_attn"] = MagicMock()
@@ -22,15 +41,25 @@ sys.modules["flash_attn.ops"] = MagicMock()
 
 import logging
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path as PathLib
 from typing import Optional
 
 import lancedb
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
+
+try:
+    import plotly.express as px  # type: ignore
+    import plotly.graph_objects as go  # type: ignore
+except ImportError:
+    px = None  # type: ignore
+    go = None  # type: ignore
+
+try:
+    import streamlit as st  # type: ignore
+except ImportError:
+    st = None  # type: ignore
+
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
@@ -39,7 +68,14 @@ from src.config import (
     LANCEDB_TABLE_SEQUENCES,
     MODEL_NAME,
 )
-from src.edge.embedder import EmbeddingEngine
+# Conditional imports to avoid transformers/torch loading issues on Windows
+try:
+    from src.edge.embedder import EmbeddingEngine
+    EMBEDDING_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    EmbeddingEngine = None  # type: ignore
+    EMBEDDING_AVAILABLE = False
+
 from src.edge.taxonomy import NoveltyDetector, TaxonomyPredictor
 
 # ============================================================================
@@ -137,8 +173,11 @@ st.markdown(
 
 
 @st.cache_resource
-def load_embedding_engine() -> Optional[EmbeddingEngine]:
+def load_embedding_engine() -> Optional[EmbeddingEngine]:  # type: ignore
     """Load embedding engine once and reuse."""
+    if not EMBEDDING_AVAILABLE:
+        logger.warning("EmbeddingEngine not available (transformers import failed)")
+        return None
     try:
         logger.info("Loading Nucleotide Transformer model...")
         engine = EmbeddingEngine(use_gpu=None)  # Auto-detect

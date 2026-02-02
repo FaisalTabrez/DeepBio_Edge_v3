@@ -15,7 +15,6 @@ Open browser → `http://localhost:8501`
 
 ### 🔍 Deep Sea Detective
 **What**: Analyze a single DNA sequence  
-**How**: Paste sequence → Click "Analyze" → See results  
 **Results**: Taxonomy (7 levels) + Novelty badge + Evidence (neighbors)  
 **Key Control**: Similarity threshold (sidebar, default 0.85)
 
@@ -29,7 +28,6 @@ Open browser → `http://localhost:8501`
 **What**: Global statistics and diversity metrics  
 **How**: Just loads automatically  
 **Metrics**: Simpson's index, Shannon index, phyla counts  
-**Export**: Raw data table (can save to CSV)
 
 ---
 
@@ -72,7 +70,6 @@ Open browser → `http://localhost:8501`
 | 🟡 Yellow | Warning, novel sequences (pulsing) |
 | 🔴 Red | Error, danger |
 | ⚫ Grey | Known taxa (in manifold) |
-| 🟨 Gold | Novel clusters (in manifold) |
 
 ---
 
@@ -100,7 +97,6 @@ Open browser → `http://localhost:8501`
 ### "LanceDB connection failed"
 → Check `.env` file, verify pendrive path exists
 
-### "Model loading takes >60s"
 → Normal on first run. Subsequent runs cached (<1s)
 
 ### "Sequence analysis hangs"
@@ -117,22 +113,12 @@ Open browser → `http://localhost:8501`
 ## 📊 Key Metrics to Highlight
 
 **During Demo:**
-- "Sequences Indexed: **[X,XXX]**" → Shows data volume
 - "Novel Taxa Found: **[X]**" → Shows discovery rate
 - "Phyla: **[X] unique**" → Shows biodiversity
 - "Novelty Rate: **[X]%**" → Shows opportunity
-
----
-
-## 💡 Demo Script Summary
-
-**Phase 1**: Show sidebar metrics (10s)  
-→ "This is our mission control"
-
 **Phase 2**: Analyze known sequence (30s)  
 → "Watch the AI identify it in seconds"
 
-**Phase 3**: Show novel discovery (30s)  
 → "This is the wow moment"
 
 **Phase 4**: Explore 3D manifold (45s)  
