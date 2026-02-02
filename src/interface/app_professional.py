@@ -311,11 +311,11 @@ def load_embedding_engine() -> Optional[Any]:
 @st.cache_resource
 def load_taxonomy_predictor() -> Optional[TaxonomyPredictor]:
     """Load taxonomy predictor once and reuse."""
-    db = load_lancedb()
-    if db is None:
-        return None
     try:
-        predictor = TaxonomyPredictor(db=db, table_name=LANCEDB_TABLE_SEQUENCES)
+        predictor = TaxonomyPredictor(
+            db_path=str(LANCEDB_PENDRIVE_PATH),
+            table_name=LANCEDB_TABLE_SEQUENCES,
+        )
         return predictor
     except Exception as e:
         st.error(f"Failed to load taxonomy predictor: {e}")
@@ -1114,8 +1114,9 @@ def render_taxonomic_inference_engine():
                 
                 # Perform prediction
                 status_container.update(label="Querying vector database...")
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
-                neighbors = prediction.neighbors if hasattr(prediction, 'neighbors') else []
+                neighbor_df = predictor.search_neighbors(embedding, k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbor_df)
+                neighbors = neighbor_df.to_dict(orient="records")
                 
                 status_container.update(label="[COMPLETE] Analysis complete", state="complete")
             
@@ -1130,9 +1131,10 @@ def render_taxonomic_inference_engine():
                 st.metric("Length (bp)", len(seq_record['sequence']))
             
             with col2:
-                confidence_color = "normal" if prediction.confidence >= 0.85 else "inverse"
+                confidence_score = prediction.confidence / 100.0
+                confidence_color = "normal" if confidence_score >= 0.85 else "inverse"
                 st.metric("Predicted Lineage", prediction.lineage.split(';')[-1])
-                st.metric("Confidence Score", f"{prediction.confidence:.3f}", delta=confidence_color)
+                st.metric("Confidence Score", f"{confidence_score:.3f}", delta=confidence_color)
                 st.metric("Classification Status", prediction.status)
             
             # Nearest Neighbors Table
@@ -1141,8 +1143,8 @@ def render_taxonomic_inference_engine():
                 {
                     'Rank': i+1,
                     'Reference ID': n.get('sequence_id', 'unknown') if isinstance(n, dict) else 'unknown',
-                    'Lineage': n.get('lineage', 'unknown') if isinstance(n, dict) else 'unknown',
-                    'Similarity': f"{n.get('distance', 0):.4f}" if isinstance(n, dict) else '0.0000'
+                    'Lineage': n.get('taxonomy', 'unknown') if isinstance(n, dict) else 'unknown',
+                    'Similarity': f"{n.get('similarity', 0):.4f}" if isinstance(n, dict) else '0.0000'
                 }
                 for i, n in enumerate(neighbors[:10])
             ])
@@ -1171,12 +1173,13 @@ def render_taxonomic_inference_engine():
             status_text.text("Stage 2/3: Performing taxonomic inference...")
             
             for idx, (seq_record, embedding) in enumerate(zip(sequences_to_process, embeddings)):
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
+                neighbor_df = predictor.search_neighbors(embedding, k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbor_df)
                 
                 results.append({
                     'sequence_id': seq_record['id'],
                     'predicted_lineage': prediction.lineage,
-                    'confidence': prediction.confidence,
+                    'confidence': prediction.confidence / 100.0,
                     'status': prediction.status
                 })
                 
@@ -1424,7 +1427,7 @@ def render_latent_space_analysis():
             
             with col3:
                 explained_var = "N/A"
-                if reduction_method == "PCA":
+                if isinstance(reducer, PCA):
                     explained_var = f"{reducer.explained_variance_ratio_.sum():.2%}"
                 st.metric("Variance Explained", explained_var)
         

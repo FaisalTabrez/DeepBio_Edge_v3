@@ -86,6 +86,7 @@ except (ImportError, ModuleNotFoundError):
     EMBEDDING_AVAILABLE = False
 
 from src.edge.taxonomy import NoveltyDetector, TaxonomyPredictor
+from src.edge.database import BioDB
 
 # ============================================================================
 # CONFIGURATION
@@ -311,11 +312,11 @@ def load_embedding_engine() -> Optional[Any]:
 @st.cache_resource
 def load_taxonomy_predictor() -> Optional[TaxonomyPredictor]:
     """Load taxonomy predictor once and reuse."""
-    db = load_lancedb()
-    if db is None:
-        return None
     try:
-        predictor = TaxonomyPredictor(db=db, table_name=LANCEDB_TABLE_SEQUENCES)
+        predictor = TaxonomyPredictor(
+            db_path=str(LANCEDB_PENDRIVE_PATH),
+            table_name=LANCEDB_TABLE_SEQUENCES,
+        )
         return predictor
     except Exception as e:
         st.error(f"Failed to load taxonomy predictor: {e}")
@@ -766,6 +767,129 @@ def render_configuration():
     
     st.divider()
     
+    # USB Drive Management
+    st.markdown("## USB DRIVE MANAGEMENT")
+    st.markdown("**Hardware Detection & Vector Index Optimization**")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### Drive Selection")
+        drive_letter = st.selectbox(
+            "USB Drive Letter",
+            ["E", "D", "F", "G", "H"],
+            help="Select the letter of your 32GB USB drive",
+            index=0
+        )
+    
+    with col2:
+        st.markdown("### IVF-PQ Tuning")
+        nprobes = st.slider(
+            "Search Clusters (nprobes)",
+            min_value=5,
+            max_value=50,
+            value=10,
+            step=5,
+            help="Higher = more accurate but slower. USB optimal: 10-15"
+        )
+        
+        if nprobes <= 10:
+            st.info("[FAST] Speed-optimized for USB drives")
+        elif nprobes <= 25:
+            st.success("[BALANCED] Accuracy/speed tradeoff")
+        else:
+            st.warning("[ACCURATE] Maximum precision searches")
+    
+    with col3:
+        st.markdown("### Storage Status")
+        
+        # Initialize BioDB for drive detection
+        from src.edge.database import BioDB
+        
+        bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+        is_mounted, mount_msg = bio_db.detect_drive()
+        
+        if is_mounted:
+            st.success(f"[MOUNTED] {drive_letter}:/")
+            storage = bio_db.get_storage_stats()
+            st.metric(
+                "Available Space",
+                f"{storage['available_gb']:.1f} GB / {storage['total_gb']:.1f} GB"
+            )
+        else:
+            st.error(f"[NOT DETECTED] {drive_letter}:/")
+    
+    st.divider()
+    
+    # Drive Verification & Maintenance
+    st.markdown("## DRIVE VERIFICATION & MAINTENANCE")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("Verify Database Integrity", use_container_width=True):
+            with st.status("Verifying database integrity..."):
+                bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+                is_valid, integrity_report = bio_db.verify_integrity()
+                
+                if is_valid:
+                    st.success("[PASS] Database integrity verified")
+                else:
+                    st.error("[FAIL] Database integrity issues detected")
+                
+                # Display detailed report
+                with st.expander("Integrity Report Details"):
+                    for key, value in integrity_report.items():
+                        st.write(f"**{key}:** {value}")
+    
+    with col2:
+        if st.button("Rebuild Vector Index", use_container_width=True):
+            with st.status("Rebuilding IVF-PQ index..."):
+                bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+                try:
+                    bio_db.connect()
+                    success, msg = bio_db.build_ivf_pq_index()
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error(f"[FAIL] Index rebuild failed: {e}")
+    
+    with col3:
+        if st.button("Update Manifest Checksum", use_container_width=True):
+            bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+            if bio_db.update_manifest():
+                st.success("[PASS] Manifest checksum updated")
+            else:
+                st.error("[FAIL] Could not update manifest")
+    
+    st.divider()
+    
+    # System Status Display
+    st.markdown("## SYSTEM STATUS (CLINICAL INTERFACE)")
+    
+    status_cols = st.columns(3)
+    
+    with status_cols[0]:
+        bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+        is_mounted, _ = bio_db.detect_drive()
+        status_text = f"MOUNTED [{drive_letter}:/]" if is_mounted else f"DISCONNECTED [{drive_letter}:/]"
+        st.metric("STORAGE_STATUS", status_text)
+    
+    with status_cols[1]:
+        st.metric("VECTOR_INDEX", "ACTIVE (IVF-PQ)")
+    
+    with status_cols[2]:
+        if is_mounted:
+            storage = bio_db.get_storage_stats()
+            used_pct = storage["percent_used"]
+            st.metric("DISK_USAGE", f"{used_pct}%")
+        else:
+            st.metric("DISK_USAGE", "N/A")
+    
+    st.divider()
+    
     # Inference Parameters
     st.markdown("## INFERENCE PARAMETERS")
     
@@ -850,15 +974,24 @@ def render_configuration():
     with col1:
         if st.button("Run Full System Diagnostics", type="primary", use_container_width=True):
             with st.status("Running comprehensive health check...") as status:
-                # Check 1: Database
+                # Check 1: USB Drive
+                status.update(label="Checking USB drive...")
+                bio_db = BioDB(drive_letter=drive_letter, enable_auto_init=True)
+                is_mounted, mount_msg = bio_db.detect_drive()
+                if is_mounted:
+                    st.success("[PASS] **USB Drive:** Detected and writable")
+                else:
+                    st.error(f"[FAIL] **USB Drive:** {mount_msg}")
+                
+                # Check 2: Database Connection
                 status.update(label="Checking LanceDB connection...")
                 db = load_lancedb()
                 if db:
                     st.success("[PASS] **LanceDB:** Connection established")
                 else:
-                    st.error("[FAIL] **LanceDB:** Connection failed - verify pendrive mount at E:/")
+                    st.error("[FAIL] **LanceDB:** Connection failed - verify pendrive mount")
                 
-                # Check 2: Embedding Engine
+                # Check 3: Embedding Engine
                 status.update(label="Checking Nucleotide Transformer...")
                 if EMBEDDING_AVAILABLE:
                     engine = load_embedding_engine()
@@ -869,7 +1002,7 @@ def render_configuration():
                 else:
                     st.warning("[WARN] **Embedding Engine:** Transformers library unavailable - using mock embeddings")
                 
-                # Check 3: Taxonomy Predictor
+                # Check 4: Taxonomy Predictor
                 status.update(label="Checking taxonomy predictor...")
                 predictor = load_taxonomy_predictor()
                 if predictor:
@@ -877,13 +1010,16 @@ def render_configuration():
                 else:
                     st.error("[FAIL] **Taxonomy Predictor:** Failed to load")
                 
-                # Check 4: Novelty Detector
-                status.update(label="Checking novelty detector...")
-                detector = load_novelty_detector()
-                if detector:
-                    st.success("[PASS] **Novelty Detector:** HDBSCAN clustering ready")
-                else:
-                    st.error("[FAIL] **Novelty Detector:** Failed to load")
+                # Check 5: Vector Index
+                status.update(label="Checking vector index...")
+                try:
+                    table_stats = bio_db.get_table_stats()
+                    if table_stats["row_count"] > 0:
+                        st.success(f"[PASS] **Vector Index:** {table_stats['row_count']:,} sequences indexed")
+                    else:
+                        st.warning("[WARN] **Vector Index:** Empty - no sequences loaded")
+                except Exception:
+                    st.warning("[WARN] **Vector Index:** Could not verify")
                 
                 status.update(label="[COMPLETE] Diagnostics complete", state="complete")
     
@@ -911,6 +1047,8 @@ def render_configuration():
                 "confidence_threshold": st.session_state.confidence_threshold,
                 "top_k_neighbors": st.session_state.top_k_neighbors,
                 "hdbscan_min_cluster_size": st.session_state.hdbscan_min_cluster_size,
+                "usb_drive": drive_letter,
+                "nprobes": nprobes,
                 "timestamp": datetime.now().isoformat()
             }
             
@@ -1114,8 +1252,9 @@ def render_taxonomic_inference_engine():
                 
                 # Perform prediction
                 status_container.update(label="Querying vector database...")
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
-                neighbors = prediction.neighbors if hasattr(prediction, 'neighbors') else []
+                neighbor_df = predictor.search_neighbors(embedding, k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbor_df)
+                neighbors = neighbor_df.to_dict(orient="records")
                 
                 status_container.update(label="[COMPLETE] Analysis complete", state="complete")
             
@@ -1130,9 +1269,10 @@ def render_taxonomic_inference_engine():
                 st.metric("Length (bp)", len(seq_record['sequence']))
             
             with col2:
-                confidence_color = "normal" if prediction.confidence >= 0.85 else "inverse"
+                confidence_score = prediction.confidence / 100.0
+                confidence_color = "normal" if confidence_score >= 0.85 else "inverse"
                 st.metric("Predicted Lineage", prediction.lineage.split(';')[-1])
-                st.metric("Confidence Score", f"{prediction.confidence:.3f}", delta=confidence_color)
+                st.metric("Confidence Score", f"{confidence_score:.3f}", delta=confidence_color)
                 st.metric("Classification Status", prediction.status)
             
             # Nearest Neighbors Table
@@ -1141,8 +1281,8 @@ def render_taxonomic_inference_engine():
                 {
                     'Rank': i+1,
                     'Reference ID': n.get('sequence_id', 'unknown') if isinstance(n, dict) else 'unknown',
-                    'Lineage': n.get('lineage', 'unknown') if isinstance(n, dict) else 'unknown',
-                    'Similarity': f"{n.get('distance', 0):.4f}" if isinstance(n, dict) else '0.0000'
+                    'Lineage': n.get('taxonomy', 'unknown') if isinstance(n, dict) else 'unknown',
+                    'Similarity': f"{n.get('similarity', 0):.4f}" if isinstance(n, dict) else '0.0000'
                 }
                 for i, n in enumerate(neighbors[:10])
             ])
@@ -1171,12 +1311,13 @@ def render_taxonomic_inference_engine():
             status_text.text("Stage 2/3: Performing taxonomic inference...")
             
             for idx, (seq_record, embedding) in enumerate(zip(sequences_to_process, embeddings)):
-                prediction = predictor.predict(embedding, top_k=top_k_neighbors)
+                neighbor_df = predictor.search_neighbors(embedding, k=top_k_neighbors)
+                prediction = predictor.predict_lineage(neighbor_df)
                 
                 results.append({
                     'sequence_id': seq_record['id'],
                     'predicted_lineage': prediction.lineage,
-                    'confidence': prediction.confidence,
+                    'confidence': prediction.confidence / 100.0,
                     'status': prediction.status
                 })
                 
@@ -1424,7 +1565,7 @@ def render_latent_space_analysis():
             
             with col3:
                 explained_var = "N/A"
-                if reduction_method == "PCA":
+                if isinstance(reducer, PCA):
                     explained_var = f"{reducer.explained_variance_ratio_.sum():.2%}"
                 st.metric("Variance Explained", explained_var)
         

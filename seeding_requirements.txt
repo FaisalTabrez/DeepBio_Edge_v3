@@ -1,0 +1,20 @@
+# Additional dependencies for Atlas Seeding (seed_atlas.py)
+# Install with: pip install -r seeding_requirements.txt
+
+# OBIS API client for ocean biodiversity data
+pyobis>=1.4.0
+
+# Biopython for NCBI Entrez API and sequence parsing
+biopython>=1.81
+
+# PyArrow for LanceDB table creation
+pyarrow>=14.0.0
+
+# Already in main requirements.txt but listed for completeness:
+# lancedb>=0.3.0
+# pandas>=2.0.0
+# numpy>=1.24.0
+
+# Note: TaxonKit must be installed separately
+# Download from: https://github.com/shenwei356/taxonkit/releases
+# NCBI Taxonomy Database required: ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz
