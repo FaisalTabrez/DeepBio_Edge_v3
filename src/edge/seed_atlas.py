@@ -11,6 +11,7 @@ Target: 2,000-5,000 unique species from Central Indian Ridge and Abyssal Plains.
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -22,6 +23,13 @@ from typing import Dict, List, Optional, Set, Tuple
 import hashlib
 import numpy as np
 import pandas as pd
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("[WARN] psutil not installed. Install with: pip install psutil")
 
 # OBIS API client
 try:
@@ -53,7 +61,7 @@ from src.config import LANCEDB_TABLE_SEQUENCES
 # ============================================================================
 
 # OBIS Query Parameters
-OBIS_DEPTH_MIN = 1000  # meters (deep-sea threshold)
+OBIS_DEPTH_MIN = 200  # meters (get more data, especially deep-sea fauna)
 OBIS_DEPTH_MAX = 6000  # meters (avoid hadal zone for initial seed)
 OBIS_BBOX = {
     "westlng": 60.0,   # Central Indian Ridge
@@ -64,21 +72,22 @@ OBIS_BBOX = {
 OBIS_MAX_RECORDS = 5000  # API limit per request
 
 # NCBI Configuration
-NCBI_EMAIL = "bioscan.demo@example.com"  # Required by NCBI API
+NCBI_EMAIL = "faisaltabrez01@gmail.com"  # Required by NCBI API
 NCBI_API_KEY = None  # Optional: Get from NCBI account for higher rate limits
-NCBI_RATE_LIMIT = 3  # requests per second (10 with API key)
+NCBI_RATE_LIMIT = 0.5  # delay in seconds between requests (to avoid IP blocking)
 NCBI_MARKERS = ["COI", "COX1", "18S", "18S rRNA"]  # Priority markers
 
 # TaxonKit Configuration
-TAXONKIT_DB = r"C:\taxonkit\taxdump"  # Update to your TaxonKit data directory
-TAXONKIT_FORMAT = "Kingdom;Phylum;Class;Order;Family;Genus;Species"
+TAXONKIT_EXE = r"C:\taxonkit\taxonkit.exe"  # Executable path
+TAXONKIT_DATA = r"C:\taxonkit\data"  # Data directory (new requirement)
+TAXONKIT_FORMAT = "{K};{p};{c};{o};{f};{g};{s}"  # K=Kingdom (Metazoa), p=Phylum, c=Class, o=Order, f=Family, g=Genus, s=Species
 
 # Target Data Volume
 TARGET_MIN_SPECIES = 2000
 TARGET_MAX_SPECIES = 5000
 
 # USB Drive Configuration
-DRIVE_LETTER = "E"
+DRIVE_LETTER = "E"  # USB drive letter
 CHECKPOINT_FILE = "checkpoint.json"
 MANIFEST_FILE = "seeding_manifest.json"
 
@@ -207,44 +216,50 @@ class OBISFetcher:
         
         try:
             # Query OBIS occurrences
-            # Note: pyobis.occurrences.search() doesn't support depth directly
-            # We filter by bounding box and then filter depth in post-processing
+            logger.info(f"[OBIS] Fetching deep-sea species (depth: {depth_min}-{depth_max}m)")
+            logger.info(f"[OBIS] Region: Central Indian Ridge {bbox}")
+            
+            # Use depthmin/depthmax parameters instead of geometry filter
             results = pyobis.occurrences.search(
-                geometry=f"{bbox['westlng']},{bbox['southlat']},{bbox['eastlng']},{bbox['northlat']}",
+                depthmin=depth_min,
+                depthmax=depth_max,
                 size=max_records
             )
             
-            if not results or 'results' not in results:
-                logger.warning("[WARN] No OBIS results returned")
-                return []
+            # Execute the query if needed
+            if results.data is None:
+                results.execute()
             
-            df = pd.DataFrame(results['results'])
-            logger.info(f"[OBIS] Retrieved {len(df)} raw occurrences")
+            # Convert to DataFrame
+            try:
+                df = results.to_pandas()
+                if df is None or len(df) == 0:
+                    logger.warning("[WARN] No OBIS results returned")
+                    return []
+                logger.info(f"[OBIS] Retrieved {len(df)} raw occurrences")
+            except Exception as e:
+                logger.warning(f"[WARN] Error parsing OBIS response: {e}")
+                return []
             
             # Filter by depth if available
             if 'depth' in df.columns:
                 df = df[(df['depth'] >= depth_min) & (df['depth'] <= depth_max)]
                 logger.info(f"[OBIS] After depth filter: {len(df)} occurrences")
             
-            # Filter for accepted species names only
-            if 'taxonomicStatus' in df.columns:
-                df = df[df['taxonomicStatus'].str.lower() == 'accepted']
-                logger.info(f"[OBIS] After status filter: {len(df)} accepted species")
-            
-            # Extract unique species names
+            # Extract unique species names (don't filter by taxonomicStatus - get all records)
             if 'scientificName' not in df.columns:
                 logger.error("[FAIL] scientificName field not in OBIS response")
                 return []
             
             species_list = df['scientificName'].dropna().unique().tolist()
             
-            # Clean species names (remove authorship)
+            # Clean species names - keep full names, just remove blank/null values
             cleaned_species = []
             for sp in species_list:
-                # Keep only genus + species (first two words)
-                parts = sp.split()
-                if len(parts) >= 2:
-                    cleaned_species.append(f"{parts[0]} {parts[1]}")
+                sp = sp.strip()
+                # Keep species with at least one word (genus)
+                if sp and len(sp) > 2:
+                    cleaned_species.append(sp)
             
             unique_species = list(set(cleaned_species))
             logger.info(f"[PASS] Extracted {len(unique_species)} unique species names")
@@ -271,13 +286,13 @@ class NCBIFetcher:
         if api_key:
             Entrez.api_key = api_key
         
-        self.rate_limit = NCBI_RATE_LIMIT if not api_key else 10
+        self.rate_limit_delay = NCBI_RATE_LIMIT  # 0.5 seconds between requests
         self.last_request_time = 0
     
     def _rate_limit_wait(self):
-        """Enforce NCBI rate limiting."""
+        """Enforce NCBI rate limiting (0.5s delay between requests to avoid IP blocking)."""
         elapsed = time.time() - self.last_request_time
-        wait_time = (1.0 / self.rate_limit) - elapsed
+        wait_time = self.rate_limit_delay - elapsed
         if wait_time > 0:
             time.sleep(wait_time)
         self.last_request_time = time.time()
@@ -366,15 +381,16 @@ class NCBIFetcher:
 class TaxonKitStandardizer:
     """Standardize taxonomic names using TaxonKit."""
     
-    def __init__(self, taxonkit_db: str = TAXONKIT_DB):
-        self.taxonkit_db = Path(taxonkit_db)
+    def __init__(self, taxonkit_exe: str = TAXONKIT_EXE, taxonkit_data: str = TAXONKIT_DATA):
+        self.taxonkit_exe = taxonkit_exe
+        self.taxonkit_data = taxonkit_data
         self._verify_installation()
     
     def _verify_installation(self):
         """Verify TaxonKit is installed and database available."""
         try:
             result = subprocess.run(
-                [r"C:\taxonkit\taxonkit_windows_amd64.exe", "version"],
+                [self.taxonkit_exe, "--data-dir", self.taxonkit_data, "version"],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -384,16 +400,17 @@ class TaxonKitStandardizer:
             else:
                 logger.warning("[WARN] TaxonKit not responding correctly")
         except FileNotFoundError:
-            logger.error("[FAIL] TaxonKit not found in PATH")
+            logger.error(f"[FAIL] TaxonKit not found at: {self.taxonkit_exe}")
             raise
         except Exception as e:
             logger.error(f"[FAIL] TaxonKit verification failed: {e}")
             raise
         
         # Check database
-        if not self.taxonkit_db.exists():
-            logger.warning(f"[WARN] TaxonKit database not found at: {self.taxonkit_db}")
-            logger.info("[INFO] Download with: wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz")
+        data_path = Path(self.taxonkit_data)
+        if not data_path.exists():
+            logger.warning(f"[WARN] TaxonKit data directory not found at: {self.taxonkit_data}")
+            logger.info("[INFO] Download with: mkdir C:\\taxonkit\\data && cd C:\\taxonkit\\data && wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz && tar -xzf taxdump.tar.gz")
     
     def standardize_lineage(self, species_name: str) -> Optional[Dict[str, str]]:
         """Get 7-level taxonomic lineage from TaxonKit.
@@ -408,7 +425,7 @@ class TaxonKitStandardizer:
         try:
             # Step 1: name2taxid
             name2taxid_result = subprocess.run(
-                [r"C:\taxonkit\taxonkit_windows_amd64.exe", "name2taxid", "--data-dir", str(self.taxonkit_db)],
+                [self.taxonkit_exe, "name2taxid", "--data-dir", self.taxonkit_data],
                 input=species_name,
                 capture_output=True,
                 text=True,
@@ -424,51 +441,69 @@ class TaxonKitStandardizer:
             if not lines or '\t' not in lines[0]:
                 return None
             
-            taxid = lines[0].split('\t')[1]
+            taxid = lines[0].split('\t')[1].strip()
+            logger.debug(f"[TAXONKIT] Got TaxID {taxid} for {species_name}")
             
-            # Step 2: reformat to get lineage
-            reformat_result = subprocess.run(
-                [
-                    r"C:\taxonkit\taxonkit_windows_amd64.exe", "reformat",
-                    "--data-dir", str(self.taxonkit_db),
-                    "--format", TAXONKIT_FORMAT,
-                    "--fill-miss-rank"
-                ],
+            # Step 2: lineage to get full taxonomic path
+            lineage_result = subprocess.run(
+                [self.taxonkit_exe, "lineage", "--data-dir", self.taxonkit_data],
                 input=taxid,
                 capture_output=True,
                 text=True,
                 timeout=10
             )
             
+            if lineage_result.returncode != 0:
+                logger.debug(f"[WARN] lineage failed for TaxID: {taxid}")
+                return None
+            
+            # Step 3: reformat to get structured output with {K} = Kingdom (Animalia, not Eukaryota)
+            reformat_result = subprocess.run(
+                [
+                    self.taxonkit_exe, "reformat",
+                    "--data-dir", self.taxonkit_data,
+                    "--format", "{K};{p};{c};{o};{f};{g};{s}"  # K=kingdom, p=phylum, c=class, o=order, f=family, g=genus, s=species
+                ],
+                input=lineage_result.stdout,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
             if reformat_result.returncode != 0:
                 logger.debug(f"[WARN] reformat failed for TaxID: {taxid}")
                 return None
             
-            # Parse lineage: "TaxID\tLineage\tFormattedLineage"
+            # Parse output: "TaxID\tRawLineage\tFormattedOutput"
             reformat_lines = reformat_result.stdout.strip().split('\n')
             if not reformat_lines:
                 return None
             
             parts = reformat_lines[0].split('\t')
             if len(parts) < 3:
+                logger.debug(f"[DEBUG] Expected 3+ fields, got {len(parts)}: {parts}")
                 return None
             
-            lineage_str = parts[2]  # Formatted lineage
-            ranks = lineage_str.split(';')
+            formatted_output = parts[2].strip()  # Get the formatted ranks
+            logger.debug(f"[TAXONKIT] Formatted: {formatted_output}")
+            ranks = formatted_output.split(';')
             
             if len(ranks) < 7:
                 # Pad with empty strings
                 ranks.extend([''] * (7 - len(ranks)))
             
-            return {
-                "kingdom": ranks[0] or "Unknown",
-                "phylum": ranks[1] or "Unknown",
-                "class": ranks[2] or "Unknown",
-                "order": ranks[3] or "Unknown",
-                "family": ranks[4] or "Unknown",
-                "genus": ranks[5] or "Unknown",
-                "species": ranks[6] or species_name
+            lineage_dict = {
+                "kingdom": ranks[0].strip() or "Unknown",
+                "phylum": ranks[1].strip() or "Unknown",
+                "class": ranks[2].strip() or "Unknown",
+                "order": ranks[3].strip() or "Unknown",
+                "family": ranks[4].strip() or "Unknown",
+                "genus": ranks[5].strip() or "Unknown",
+                "species": ranks[6].strip() or species_name
             }
+            
+            logger.debug(f"[TAXONKIT] Lineage: {' > '.join([lineage_dict[k] for k in ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']])}")
+            return lineage_dict
         
         except Exception as e:
             logger.warning(f"[WARN] TaxonKit standardization failed for {species_name}: {e}")
@@ -611,7 +646,7 @@ class AtlasSeeder:
         self.checkpoint = CheckpointManager(self.bio_db)
         self.obis = OBISFetcher()
         self.ncbi = NCBIFetcher(email=NCBI_EMAIL, api_key=NCBI_API_KEY)
-        self.taxonkit = TaxonKitStandardizer(taxonkit_db=TAXONKIT_DB)
+        self.taxonkit = TaxonKitStandardizer(taxonkit_exe=TAXONKIT_EXE, taxonkit_data=TAXONKIT_DATA)
         self.ingester = LanceDBIngester(self.bio_db)
         
         # Statistics
@@ -633,6 +668,33 @@ class AtlasSeeder:
             logger.info("=" * 80)
             logger.info("DEEP-SEA EDNA REFERENCE ATLAS SEEDING")
             logger.info("=" * 80)
+            
+            # Clean environment: Delete existing database folder for fresh start
+            logger.info("\n[CLEANUP] Preparing fresh database environment...")
+            db_path = self.bio_db.db_root
+            if db_path.exists():
+                try:
+                    logger.info(f"[CLEANUP] Removing existing database at: {db_path}")
+                    shutil.rmtree(db_path)
+                    logger.info("[PASS] Database folder removed")
+                except Exception as e:
+                    logger.error(f"[WARN] Could not remove existing database: {e}")
+            
+            # Create fresh database directory
+            db_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[PASS] Fresh database directory created: {db_path}")
+            
+            # Pre-flight validation: Test TaxonKit with known species
+            logger.info("\n[PREFLIGHT] Running TaxonKit sanity check...")
+            test_lineage = self.taxonkit.standardize_lineage("Homo sapiens")
+            
+            if test_lineage and test_lineage.get("species") == "Homo sapiens":
+                logger.info("[PASS] TaxonKit sanity check: Homo sapiens resolved correctly")
+                logger.info(f"[TAXONKIT] Lineage: {test_lineage['kingdom']} > {test_lineage['phylum']} > {test_lineage['class']} > {test_lineage['order']} > {test_lineage['family']} > {test_lineage['genus']} > {test_lineage['species']}")
+            else:
+                logger.error("[FAIL] TaxonKit sanity check failed: Could not resolve Homo sapiens")
+                logger.error("[FAIL] Aborting seeding - TaxonKit configuration issue")
+                raise RuntimeError("TaxonKit pre-flight validation failed")
             
             # Step 1: Fetch species list from OBIS
             logger.info("\n[STEP 1] Fetching species list from OBIS...")
@@ -686,7 +748,7 @@ class AtlasSeeder:
                             "species": species
                         }
                     
-                    logger.info(f"[TAXONKIT] {lineage['kingdom']} > {lineage['phylum']} > {lineage['class']}")
+                    logger.info(f"[TAXONOMY] {lineage['kingdom']} > {lineage['phylum']} > {lineage['class']} > {lineage['order']} > {lineage['family']} > {lineage['genus']}")
                     
                     # Add to ingestion buffer
                     for seq_data in sequences:
@@ -831,7 +893,8 @@ class AtlasSeeder:
                         "email": NCBI_EMAIL
                     },
                     "taxonkit": {
-                        "database": str(self.taxonkit.taxonkit_db),
+                        "exe": str(self.taxonkit.taxonkit_exe),
+                        "data_dir": str(self.taxonkit.taxonkit_data),
                         "format": TAXONKIT_FORMAT
                     }
                 },
@@ -866,6 +929,41 @@ def main():
     if not BIOPYTHON_AVAILABLE:
         print("[FAIL] Biopython not installed. Install with: pip install biopython")
         return 1
+    
+    if not PSUTIL_AVAILABLE:
+        print("[FAIL] psutil not installed. Install with: pip install psutil")
+        return 1
+    
+    # NTFS Safety Check
+    print(f"\n[PREFLIGHT] Checking filesystem on drive {DRIVE_LETTER}:")
+    if PSUTIL_AVAILABLE:
+        try:
+            partitions = psutil.disk_partitions()
+            drive_found = False
+            ntfs_verified = False
+            
+            for partition in partitions:
+                if partition.mountpoint.upper().startswith(f"{DRIVE_LETTER}:"):
+                    drive_found = True
+                    print(f"  Drive: {partition.mountpoint}")
+                    print(f"  Filesystem: {partition.fstype}")
+                    
+                    if partition.fstype.upper() == "NTFS":
+                        ntfs_verified = True
+                        print(f"[PASS] Drive {DRIVE_LETTER}: is NTFS - compatible with LanceDB")
+                    else:
+                        print(f"[FATAL] USB drive must be formatted as NTFS")
+                        print(f"[INFO] Current filesystem: {partition.fstype}")
+                        print(f"[INFO] Please format {DRIVE_LETTER}: as NTFS and retry")
+                        return 1
+                    break
+            
+            if not drive_found:
+                print(f"[WARN] Could not verify filesystem type for {DRIVE_LETTER}:")
+                print(f"[INFO] Proceeding with caution...")
+        except Exception as e:
+            print(f"[WARN] Could not check filesystem: {e}")
+            print(f"[INFO] Proceeding with caution...")
     
     # Verify NCBI email is configured
     if NCBI_EMAIL == "bioscan.demo@example.com":
